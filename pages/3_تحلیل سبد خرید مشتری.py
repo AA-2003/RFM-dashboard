@@ -12,7 +12,7 @@ from utils.custom_css import apply_custom_css
 from utils.logger import logger
 from utils.constants import DEALSTATUS, DEALVALUE, \
     CUSTOMERID, COMPLEX, PRODUCTTITLE
-from RFM.utils.funcs import convert_df, convert_df_to_excel
+from utils.funcs import convert_df, convert_df_to_excel
 
 def main():
     st.set_page_config(page_title="تحلیل کمپین", page_icon="📊", layout="wide")
@@ -20,8 +20,8 @@ def main():
     st.subheader("تحلیل سبد خرید مشتری بر اساس سگمنت‌ها و محصولات")    
 
     # Check data availability and login first
-    if st.authentication_status:    
-        if 'data' in st.session_state and 'rfm_data'in st.session_state:
+    if 'auth' in st.session_state and st.session_state.auth:    
+        if 'data' in st.session_state and 'rfm_data' in st.session_state:
             data = st.session_state.data
             rfm_data = st.session_state.rfm_data
 

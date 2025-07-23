@@ -11,8 +11,8 @@ from collections import Counter, defaultdict
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
-from utils.constants import DEALSOURCE, DEALOWNER, DEALDONEDATE, DEALSTATUS, DEALVALUE, PURCHASETYPE, CUSTOMERID
-from RFM.utils.funcs import convert_df, convert_df_to_excel, get_first_successful_deal_date_for_customers
+from utils.constants import DEALSOURCE, DEALOWNER, DEALDONEDATE, DEALCREATEDDATE, DEALSTATUS, DEALVALUE, PURCHASETYPE, CUSTOMERID
+from utils.funcs import convert_df, convert_df_to_excel, get_first_successful_deal_date_for_customers
 
 def main():
     """Main function to run the Streamlit app."""
@@ -21,12 +21,11 @@ def main():
     st.title("‌تحلیل عملکرد کانال‌های فروش")
 
     # Check data availability and login first
-    if st.authentication_status:    
+    if 'auth'in st.session_state and st.session_state.auth:    
         if 'data' in st.session_state and 'rfm_data'in st.session_state:
             data = st.session_state.data
             rfm_data = st.session_state.rfm_data
             
-            st.write(data.columns)
             if 'first_deal_date_by_customer' not in st.session_state:
                 global_first_deal_date_series_channels = get_first_successful_deal_date_for_customers(data)
             else:
@@ -62,8 +61,8 @@ def main():
 
                 with st.form(key='channel_filters_form', clear_on_submit=False):
                     selected_channel = st.selectbox("Select a Sale Channel:", options=sale_channels_options)
-                    min_date = data[DEALDONEDATE].min()
-                    max_date = data[DEALDONEDATE].max()
+                    min_date = data[DEALCREATEDDATE].min()
+                    max_date = data[DEALCREATEDDATE].max()
                     if pd.isna(min_date) or pd.isna(max_date):
                         st.warning("Date range is invalid. Please check your data.")
                         st.stop()
@@ -99,8 +98,8 @@ def main():
                         if selected_vips_channel:
                             # Filter data
                             date_filtered_data_all = data[
-                                (data[DEALDONEDATE] >= pd.to_datetime(start_date)) &
-                                (data[DEALDONEDATE] <= pd.to_datetime(end_date)) &
+                                (data[DEALCREATEDDATE] >= pd.to_datetime(start_date)) &
+                                (data[DEALCREATEDDATE] <= pd.to_datetime(end_date)) &
                                 (data[DEALSOURCE] == selected_channel)
                             ]
                             date_filtered_data_all = date_filtered_data_all[date_filtered_data_all['VIP Status'].isin(selected_vips_channel)]
@@ -466,8 +465,8 @@ def main():
 
                 with st.form(key='compare_two_channels_form', clear_on_submit=False):
                     two_channels = st.multiselect("Select Two Channels:", options=sale_channels_options, max_selections=2, key='two_channels_select')
-                    min_date_compare = data[DEALDONEDATE].min()
-                    max_date_compare = data[DEALDONEDATE].max()
+                    min_date_compare = data[DEALCREATEDDATE].min()
+                    max_date_compare = data[DEALCREATEDDATE].max()
                     if pd.isna(min_date_compare) or pd.isna(max_date_compare):
                         st.warning("Date range is invalid. Please check your data.")
                         st.stop()
@@ -502,14 +501,14 @@ def main():
 
                             df_ch1 = data[
                                 (data[DEALSOURCE] == ch1) &
-                                (data[DEALDONEDATE] >= pd.to_datetime(start_date_compare)) &
-                                (data[DEALDONEDATE] <= pd.to_datetime(end_date_compare)) &
+                                (data[DEALCREATEDDATE] >= pd.to_datetime(start_date_compare)) &
+                                (data[DEALCREATEDDATE] <= pd.to_datetime(end_date_compare)) &
                                 (data['VIP Status'].isin(selected_vips_channel_compare_two))
                             ]
                             df_ch2 = data[
                                 (data[DEALSOURCE] == ch2) &
-                                (data[DEALDONEDATE] >= pd.to_datetime(start_date_compare)) &
-                                (data[DEALDONEDATE] <= pd.to_datetime(end_date_compare)) &
+                                (data[DEALCREATEDDATE] >= pd.to_datetime(start_date_compare)) &
+                                (data[DEALCREATEDDATE] <= pd.to_datetime(end_date_compare)) &
                                 (data['VIP Status'].isin(selected_vips_channel_compare_two))
                             ]
                             df_ch1_success = df_ch1[df_ch1[DEALSTATUS] == 'Won']
@@ -767,8 +766,8 @@ def main():
                     )
 
                 with st.form(key='compare_all_channels_form', clear_on_submit=False):
-                    min_date_all = data[DEALDONEDATE].min()
-                    max_date_all = data[DEALDONEDATE].max()
+                    min_date_all = data[DEALCREATEDDATE].min()
+                    max_date_all = data[DEALCREATEDDATE].max()
                     if pd.isna(min_date_all) or pd.isna(max_date_all):
                         st.warning("Date range is invalid. Please check your data.")
                         st.stop()
@@ -786,8 +785,8 @@ def main():
                 if apply_compare_all:
                     if selected_vips_channel_compare_all:
                         all_channels_data = data[
-                            (data[DEALDONEDATE] >= pd.to_datetime(start_date_all)) &
-                            (data[DEALDONEDATE] <= pd.to_datetime(end_date_all)) &
+                            (data[DEALCREATEDDATE] >= pd.to_datetime(start_date_all)) &
+                            (data[DEALCREATEDDATE] <= pd.to_datetime(end_date_all)) &
                             (data['VIP Status'].isin(selected_vips_channel_compare_all))
                         ]
                         if all_channels_data.empty:
@@ -943,8 +942,8 @@ def main():
                     )
 
                 with st.form(key='channel_cluster_form', clear_on_submit=False):
-                    min_date = data[DEALDONEDATE].min()
-                    max_date = data[DEALDONEDATE].max()
+                    min_date = data[DEALCREATEDDATE].min()
+                    max_date = data[DEALCREATEDDATE].max()
                     if pd.isna(min_date) or pd.isna(max_date):
                         st.warning("Date range is invalid. Please check your data.")
                         st.stop()
@@ -969,8 +968,8 @@ def main():
                     else:
                         if selected_vips_channel_cluster:
                             date_filtered_data_all = data[
-                                (data[DEALDONEDATE] >= pd.to_datetime(start_date)) &
-                                (data[DEALDONEDATE] <= pd.to_datetime(end_date))
+                                (data[DEALCREATEDDATE] >= pd.to_datetime(start_date)) &
+                                (data[DEALCREATEDDATE] <= pd.to_datetime(end_date))
                             ]
                             if 'RFM_segment_label' not in rfm_data.columns:
                                 st.error("RFM_segment_label column not found in rfm_data. Cannot filter by cluster.")

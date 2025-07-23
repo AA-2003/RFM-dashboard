@@ -22,6 +22,7 @@ credentials = {
 def load_deals() -> pd.DataFrame:
     query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`"
     logger.info(f"Executing BigQuery query: {query}")
+    print("Loading deals data...")
     try:
         # Initialize BigQuery client
         client = bigquery.Client.from_service_account_info(credentials)
@@ -38,6 +39,7 @@ def load_deals() -> pd.DataFrame:
 def load_products() -> pd.DataFrame:
     query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`"
     logger.info(f"Executing BigQuery query: {query}")
+    print("Loading products data...")
     try:
         client = bigquery.Client.from_service_account_info(credentials)
         df = client.query(query).to_dataframe(create_bqstorage_client=False)
@@ -50,6 +52,7 @@ def load_products() -> pd.DataFrame:
 def load_contacts() -> pd.DataFrame:
     query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.Contacts`"
     logger.info(f"Executing BigQuery query: {query}")
+    print("Loading contacts data...")
     try:
         client = bigquery.Client.from_service_account_info(credentials)
         df = client.query(query).to_dataframe(create_bqstorage_client=False)
@@ -60,4 +63,7 @@ def load_contacts() -> pd.DataFrame:
     
 
 def insert_rfm(data: pd.DataFrame):
+    """
+    insert rfm data into BigQuery
+    """
     pass

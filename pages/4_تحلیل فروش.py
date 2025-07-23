@@ -10,18 +10,19 @@ import plotly.graph_objects as go
 # Add parent directory to sys.path for utility imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
-from utils.constants import DEALDONEDATE, DEALOWNER, DEALSTATUS
+from utils.constants import DEALDONEDATE, DEALOWNER, DEALSTATUS, DEALCREATEDDATE
 
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def analysis_seller(selected_sellers: list, data: pd.DataFrame, rfm_data: pd.DataFrame,  start_date: str, end_date: str, selected_vips: list):
+def analysis_seller(data: pd.DataFrame, rfm_data: pd.DataFrame, selected_sellers: list, start_date: str, end_date: str, selected_vips: list):
     mask = (
-        (data[DEALDONEDATE] >= pd.to_datetime(start_date))
-        & (data[DEALDONEDATE] <= pd.to_datetime(end_date))
+        (data[DEALCREATEDDATE] >= pd.to_datetime(start_date))
+        & (data[DEALCREATEDDATE] <= pd.to_datetime(end_date))
         & (data[DEALOWNER].isin(selected_sellers))
         & (data["VIP Status"].isin(selected_vips))
     )
+    
     filtered_data_all = data.loc[mask]
     filtered_data_success = filtered_data_all[filtered_data_all[DEALSTATUS] == "Won"]
 
@@ -32,10 +33,10 @@ def analysis_seller(selected_sellers: list, data: pd.DataFrame, rfm_data: pd.Dat
             st.warning("one seller")
         case 2:
             # two tab
-            st.warning("Multiple sellers selected. Analysis may not be accurate.")
+            st.warning("Multiple sellers selected.")
         case _:
             # page
-            st.warning("More than two sellers selected. Analysis may not be accurate.")
+            st.warning("More than two sellers selected.")
 
 
 def main():
@@ -45,13 +46,14 @@ def main():
 
     
     # Check data availability and login first
-    if st.authentication_status:    
+    if 'auth'in st.session_state and st.session_state.auth:    
         if 'data' in st.session_state and 'rfm_data'in st.session_state:
             data = st.session_state.data
             rfm_data = st.session_state.rfm_data
 
             sellers_options = data[DEALOWNER].unique().tolist()
-            vip_options = sorted(rfm_data["VIP Status"].unique())
+
+            vip_options = sorted(rfm_data["VIP Status"].unique().tolist())
             select_all_vips = st.checkbox("انتخاب تمام وضعیت‌هایVIP", value=True, key="select_all_vips_seller_unified")
             selected_vips = (
                 vip_options if select_all_vips else st.multiselect(
@@ -61,6 +63,7 @@ def main():
                 key="vips_multiselect_seller_unified",
                 )
             )
+
             tab1, tab2 = st.tabs(["Seller Analysis", "RFM Analysis"])
 
             with tab1:
@@ -71,24 +74,21 @@ def main():
                     default=[],
                     key="unified_seller_multiselect",
                     )
-                    min_date = data[DEALDONEDATE].min()
-                    max_date = data[DEALDONEDATE].max()
+                    min_date = data[DEALCREATEDDATE].min()
+                    max_date = data[DEALCREATEDDATE].max()
                     if pd.isna(min_date) or pd.isna(max_date):
                         st.warning("Date range is invalid. Please check your data.")
                         st.stop()
                     min_date, max_date = min_date.date(), max_date.date()
+
                     start_date = st.date_input(
                     "Start Date", value=min_date, min_value=min_date, max_value=max_date, key="unified_seller_start_date"
                     )
+
                     end_date = st.date_input(
                     "End Date", value=max_date, min_value=min_date, max_value=max_date, key="unified_seller_end_date"
                     )
                     apply_unified_filters = st.form_submit_button(label="Apply Filters")
-
-                if "unified_seller_data" not in st.session_state:
-                    st.session_state.unified_seller_data = None
-                    st.session_state.unified_seller_kpi_df = None
-                    st.session_state.unified_seller_daily_df = None
 
                 if apply_unified_filters:
                     if not selected_vips:
@@ -98,9 +98,9 @@ def main():
                             selected_sellers = sellers_options
                         
                         analysis_seller(
-                            selected_sellers,
                             data,
                             rfm_data,
+                            selected_sellers,
                             start_date,
                             end_date,
                             selected_vips

@@ -8,7 +8,7 @@ import plotly.express as px
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.constants import COLOR_MAP, DEALSTATUS, CUSTOMERID, COMPLEX, PRODUCTTITLE
-from RFM.utils.funcs import convert_df, convert_df_to_excel
+from utils.funcs import convert_df, convert_df_to_excel
 
 @st.cache_data
 def filter_data(data, vip_values, black_list_values, complex_values, tip_values):

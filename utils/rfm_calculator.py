@@ -69,12 +69,9 @@ def calculate_rfm(data: pd.DataFrame, today=None):
 
         # Filter successful deals
         successful_deals = data[data[DEALSTATUS] == "Won"].copy()
-
-        successful_deals['VIP Status'] = False
-
         # Calculate core RFM metrics
         rfm_data = successful_deals.groupby(CUSTOMERID).agg({
-            # CUSTOMERNAME: 'first',
+            CUSTOMERNAME: 'first',
             CUSTOMERPHONE: 'first',
             DEALDONEDATE: lambda x: (
                 today - pd.to_datetime(x, format="%m/%d/%Y %H:%M").max().replace(tzinfo=None)
@@ -89,7 +86,7 @@ def calculate_rfm(data: pd.DataFrame, today=None):
         # Standardize column names
         column_mapping = {
             CUSTOMERID: 'Code',
-            # CUSTOMERNAME: 'Name',
+            CUSTOMERNAME: 'Name',
             CUSTOMERPHONE: 'Phone Number',
             DEALDONEDATE: 'Recency',
             DEALID: 'Frequency',
@@ -129,8 +126,7 @@ def calculate_rfm(data: pd.DataFrame, today=None):
         rfm_data['Is Monthly'] = rfm_data['average stay'] > 15
 
         # Add favorite and last complex/type info
-        # for metric in [(COMPLEX, 'مجتمع'), (PRODUCTTITLE, 'تیپ')]:
-        for metric in [(PRODUCTTITLE, 'تیپ')]:
+        for metric in [(COMPLEX, 'مجتمع'), (PRODUCTTITLE, 'تیپ')]:
             field, label = metric
             
             # Calculate favorite
@@ -169,8 +165,7 @@ def calculate_rfm(data: pd.DataFrame, today=None):
                             (rfm_data['تاریخ خروج آخرین رزرو'] != str(0))]
 
 
-        # rfm_data.drop(columns=[CUSTOMERID, 'count_y', 'count_x'], inplace=True)
-        rfm_data.drop(columns=[CUSTOMERID], inplace=True)
+        rfm_data.drop(columns=[CUSTOMERID, 'count_y', 'count_x'], inplace=True)
 
         return rfm_data
 

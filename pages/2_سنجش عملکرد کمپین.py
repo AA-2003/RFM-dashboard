@@ -12,7 +12,7 @@ from utils.custom_css import apply_custom_css
 from utils.logger import logger
 from utils.rfm_calculator import calculate_rfm, normalize_rfm, rfm_segmentation
 from utils.constants import COLOR_MAP, DEALDONEDATE
-from RFM.utils.funcs import convert_df, convert_df_to_excel
+from utils.funcs import convert_df, convert_df_to_excel
 
 @st.cache_data(ttl=60)
 def rfm_calculation_cache(data, date=None):
@@ -33,7 +33,7 @@ def main():
     st.subheader("سنجش عملکرد کمپین از طریق بخش‌بندی مشتریان ")    
 
 
-    if st.authentication_status:    
+    if 'auth'in st.session_state and st.session_state.auth:    
         if 'data' in st.session_state and 'rfm_data'in st.session_state:
                         
             data = st.session_state.data

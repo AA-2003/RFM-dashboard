@@ -8,10 +8,11 @@ from datetime import time, timedelta
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.logger import logger
-from utils.constants import COLOR_MAP
+from utils.constants import COLOR_MAP, CHECKINDATE, CHECKOUTDATE, COMPLEX, PRODUCTTITLE, DEALTYPE
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+
 
 @st.cache_data
 def convert_df(df):
@@ -33,22 +34,23 @@ def main():
     apply_custom_css()
     st.title("تحلیل وضعیت چک‌این مجتمع‌ها")
     # Check data availability and login first
-    if st.authentication_status:    
+    if 'auth'in st.session_state and st.session_state.auth:    
         if 'data' in st.session_state and st.session_state.data is not None and not st.session_state.data.empty:
 
             data = st.session_state.data
-            # Ensure 'checkin_date' is a proper datetime column
-            data['checkin_date'] = pd.to_datetime(data['checkin_date'], errors='coerce')
+
+            # Ensure CHECKINDATE is a proper datetime column
+            data[CHECKINDATE] = pd.to_datetime(data[CHECKINDATE], errors='coerce')
             # Drop rows with no arrival date
-            df_arrivals = data.dropna(subset=['checkin_date']).copy()
+            df_arrivals = data.dropna(subset=[CHECKINDATE]).copy()
 
             if df_arrivals.empty:
                 st.warning("No valid arrival dates found in the dataset.")
                 st.stop()
 
             # Get the min/max arrival dates from the data
-            min_date_dt = df_arrivals['checkin_date'].min()
-            max_date_dt = df_arrivals['checkin_date'].max()
+            min_date_dt = df_arrivals[CHECKINDATE].min()
+            max_date_dt = df_arrivals[CHECKINDATE].max()
 
             if pd.isna(min_date_dt) or pd.isna(max_date_dt):
                 st.warning("Date range is invalid. Please check your data.")
@@ -80,7 +82,7 @@ def main():
             # 2) --- FILTERS ON COMPLEXES AND HOUSE TYPES (DEPENDENT) ---
 
             # Complex filter
-            complex_options = sorted(df_arrivals['complex_name'].dropna().unique().tolist())
+            complex_options = sorted(df_arrivals[COMPLEX].dropna().unique().tolist())
             select_all_complexes = st.checkbox("Select all complexes", value=True)
             if select_all_complexes:
                 selected_complexes = complex_options
@@ -95,8 +97,8 @@ def main():
                 selected_complexes = complex_options
 
             # Narrow down product options only to what's in the chosen complexes:
-            temp_for_complex = df_arrivals[df_arrivals['complex_name'].isin(selected_complexes)]
-            product_options = sorted(temp_for_complex['product_title'].dropna().unique().tolist())
+            temp_for_complex = df_arrivals[df_arrivals[COMPLEX].isin(selected_complexes)]
+            product_options = sorted(temp_for_complex[PRODUCTTITLE].dropna().unique().tolist())
 
             # House type (product) filter
             select_all_products = st.checkbox("Select all house types", value=True)
@@ -114,10 +116,10 @@ def main():
 
             # 3) --- APPLY ALL FILTERS ---
             mask = (
-                (df_arrivals['checkin_date'].dt.date >= start_date) &
-                (df_arrivals['checkin_date'].dt.date <= end_date) &
-                (df_arrivals['complex_name'].isin(selected_complexes)) &
-                (df_arrivals['product_title'].isin(selected_products))
+                (df_arrivals[CHECKINDATE].dt.date >= start_date) &
+                (df_arrivals[CHECKINDATE].dt.date <= end_date) &
+                (df_arrivals[COMPLEX].isin(selected_complexes)) &
+                (df_arrivals[PRODUCTTITLE].isin(selected_products))
             )
             filtered_df = df_arrivals[mask].copy()
 
@@ -151,8 +153,8 @@ def main():
             else:
                 avg_stay = 0
 
-            # 4.5) Extensions count => "purchase_type" == "تمدید"
-            filtered_df['IsExtension'] = filtered_df['purchase_type'].eq('تمدید')
+            # 4.5) Extensions count => "purchase_type" == "Renewal"
+            filtered_df['IsExtension'] = filtered_df[DEALTYPE].eq('Renewal')
             total_extensions = filtered_df['IsExtension'].sum()
 
             # 4.6) New arrivals = non-extensions
@@ -174,7 +176,7 @@ def main():
             # 6) --- TABLE BREAKDOWN BY HOUSE TYPE (product_title) ---
             st.subheader("Arrival Breakdown by House Type")
 
-            grouped = filtered_df.groupby('product_title', dropna=False)
+            grouped = filtered_df.groupby(PRODUCTTITLE, dropna=False)
 
             house_type_data = []
             for house_type, subdf in grouped:
@@ -220,11 +222,11 @@ def main():
             st.subheader("Monthly Arrivals by Complex (Extensions vs. New)")
 
             # Create a 'Month' column (e.g. '2023-07') for grouping
-            filtered_df['Month'] = filtered_df['checkin_date'].dt.to_period('M').astype(str)
+            filtered_df['Month'] = filtered_df[CHECKINDATE].dt.to_period('M').astype(str)
 
             # We'll loop over each chosen complex and show a stacked column chart
             for cx in selected_complexes:
-                sub_df = filtered_df[filtered_df['complex_name'] == cx]
+                sub_df = filtered_df[filtered_df[COMPLEX] == cx]
                 if sub_df.empty:
                     continue  # skip if no data for this complex
 
@@ -264,10 +266,7 @@ def main():
                         xanchor='center',
                         yanchor='bottom'
                     )
-
                 st.plotly_chart(fig, use_container_width=True)
-
-            st.success("Arrival analysis completed.")
         else:
             st.warning('ابتدا از صفحه اصلی داده را بارگذاری کنید!')
     else:

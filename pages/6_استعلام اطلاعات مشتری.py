@@ -16,7 +16,7 @@ def main():
     apply_custom_css()
     st.title("ماژول استعلام و تحلیل مشتری")
     # Check data availability and login first
-    if st.authentication_status:    
+    if 'auth'in st.session_state and st.session_state.auth:    
         if 'data' in st.session_state and st.session_state.data is not None and not st.session_state.data.empty:
 
             data = st.session_state.data
@@ -27,7 +27,7 @@ def main():
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    input_last_name = st.text_input("Last Name")
+                    input_last_name = st.text_input("Name")
                 with col2:
                     input_phone_number = st.text_input("Phone Number")
                 with col3:
