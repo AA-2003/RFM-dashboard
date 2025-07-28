@@ -1,17 +1,17 @@
 import streamlit as st
-import pandas as pd
 import os
 import sys
-from io import BytesIO
-from datetime import datetime
 import plotly.express as px
 
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
-from utils.logger import logger
+from utils.load_data import exacute_query
+from utils.auth import login
 from utils.constants import DEALSTATUS, DEALVALUE, \
     CUSTOMERID, COMPLEX, PRODUCTTITLE
+
+
 from utils.funcs import convert_df, convert_df_to_excel
 
 def main():
@@ -185,9 +185,7 @@ def main():
         else:
             st.info('ابتدا داده را لود کنید')
     else:
-        st.warning('ابتدا وارد اکانت خود شوید!')
-
-
+        login()
 
 if __name__ == "__main__":
     main()

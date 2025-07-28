@@ -51,7 +51,7 @@ def main():
             data = st.session_state.data
             rfm_data = st.session_state.rfm_data
 
-            sellers_options = data[DEALOWNER].unique().tolist()
+            sellers_options = data[DEALOWNER].unique().tolist().copy()
 
             vip_options = sorted(rfm_data["VIP Status"].unique().tolist())
             select_all_vips = st.checkbox("انتخاب تمام وضعیت‌هایVIP", value=True, key="select_all_vips_seller_unified")

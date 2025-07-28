@@ -2,6 +2,9 @@ from google.cloud import bigquery
 import pandas as pd
 import streamlit as st
 from utils.logger import logger
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 credentials = {
             "type": st.secrets["GOOGLE_TYPE"],
@@ -18,52 +21,58 @@ credentials = {
         }
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_deals() -> pd.DataFrame:
-    query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`"
-    logger.info(f"Executing BigQuery query: {query}")
-    print("Loading deals data...")
+@st.cache_data(ttl=600 , show_spinner=False)
+def exacute_query(query: str) -> pd.DataFrame:
+    """
+    Execute a BigQuery query and return the results as a DataFrame.
+    """
+    start = time.time()
     try:
-        # Initialize BigQuery client
         client = bigquery.Client.from_service_account_info(credentials)
-        
-        # Execute query and return results as DataFrame using REST API only
         df = client.query(query).to_dataframe(create_bqstorage_client=False)
+        end = time.time()
+        logger.info(f"Query Executed: {str(query)} \n time:{end-start}s")
+        print(f"Query Executed: {str(query)} \n time:{end-start}s")
         return df
-        
     except Exception as e:
+        logger.info(f"Error executing query: {str(e)}")
         print(f"Error executing query: {str(e)}")
         return None
 
-@st.cache_data(ttl=3600, show_spinner=False) 
-def load_products() -> pd.DataFrame:
-    query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`"
-    logger.info(f"Executing BigQuery query: {query}")
-    print("Loading products data...")
-    try:
-        client = bigquery.Client.from_service_account_info(credentials)
-        df = client.query(query).to_dataframe(create_bqstorage_client=False)
-        return df
-    except Exception as e:
-        print(f"Error executing query: {str(e)}")
-        return None
-    
-@st.cache_data(ttl=3600 , show_spinner=False)
-def load_contacts() -> pd.DataFrame:
-    query = "SELECT * FROM `customerhealth-crm-warehouse.didar_data.Contacts`"
-    logger.info(f"Executing BigQuery query: {query}")
-    print("Loading contacts data...")
-    try:
-        client = bigquery.Client.from_service_account_info(credentials)
-        df = client.query(query).to_dataframe(create_bqstorage_client=False)
-        return df
-    except Exception as e:
-        print(f"Error executing query: {str(e)}")
-        return None
-    
 
-def insert_rfm(data: pd.DataFrame):
-    """
-    insert rfm data into BigQuery
-    """
-    pass
+async def run_query_async(query: str, executor):
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(executor, exacute_query, query)
+    return result
+async def run_queries_in_parallel(queries):
+    results = []
+    executor = ThreadPoolExecutor(max_workers=5)  
+
+    tasks = [
+        run_query_async(query, executor)
+        for query in queries
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    return results
+
+def exacute_queries(queries: list[str]) -> None:
+    try:
+        results = asyncio.run(run_queries_in_parallel(queries))
+        return results
+    except Exception:
+        return None
+    
+def load_rfms() -> None:
+    if 'rfms' not in st.session_state:
+        queries = [
+            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`",
+            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before`",
+            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_six_months_before`",
+            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before`",
+            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before`",
+        ]
+        results = asyncio.run(run_queries_in_parallel(queries))
+        st.session_state['rfms']=results
+    else:
+        return

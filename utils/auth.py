@@ -4,6 +4,7 @@ def login():
     st.title("صفحه ورود")
     st.write("لطفاً اطلاعات کاربری خود را وارد کنید.")
     passwords = st.secrets["passwords"]
+    roles = st.secrets["roles"]
 
     username = st.text_input("نام کاربری")
     password = st.text_input("رمز عبور", type="password")
@@ -11,9 +12,11 @@ def login():
     if st.button('ورود'):
         if username and password:
             if username in passwords and passwords[username] == password:
+                st.session_state.role = roles.get(username, "user")
                 st.session_state.username = username
                 st.session_state.auth = True
-                st.success(f"ورود موفقیت آمیز! خوش آمدید")
+
+                st.success("ورود موفقیت آمیز! خوش آمدید")
                 time.sleep(1) 
                 st.rerun()
             else:

@@ -1,6 +1,4 @@
 import streamlit as st
-import re
-import unicodedata
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -8,52 +6,6 @@ from sklearn.preprocessing import MinMaxScaler
 from utils.logger import logger
 from utils.constants import DEALID, DEALSTATUS, DEALDONEDATE, DEALVALUE, \
     CUSTOMERID, CUSTOMERNAME, CUSTOMERPHONE, CHECKINDATE, CHECKOUTDATE, COMPLEX, PRODUCTTITLE, NIGHTS
-
-
-@st.cache_data
-def extract_vip_status(name_series):
-    """Extract VIP status from a series of names."""
-
-    # 1) Fill NaNs with empty string so we can operate safely
-    name_series = name_series.fillna("")
-
-    # 2) Normalize Unicode to canonical form (NFC)
-    name_series = name_series.apply(lambda x: unicodedata.normalize('NFC', x))
-
-    # 3) Replace Excel’s special code for 💎
-    name_series = name_series.str.replace(r"_xD83D__xDC8E", "💎", regex=True)
-
-    # 4) Remove potential zero-width or variation selectors (like U+200D, U+FE0F, etc.)
-    name_series = name_series.str.replace(r"[\u200B-\u200D\uFE0F]", "", regex=True)
-
-    # 5) Final VIP status check
-    def get_vip_status(name):
-        if not name or pd.isna(name):
-            return 'Non-VIP'
-        if '💎' in name:
-            return 'Gold VIP'
-        elif '⭐' in name:
-            return 'Silver VIP'
-        elif '💠' in name:
-            return 'Bronze VIP'
-        else:
-            return 'Non-VIP'
-
-    return name_series.apply(get_vip_status)
-
-
-@st.cache_data
-def extract_blacklist_status(name_series):
-    """Extract Blacklist status from a series of names."""
-    def get_blacklist_status(name):
-        if pd.isna(name):
-            return 'Non-BlackList'
-        # بررسی وجود (*) در انتهای نام
-        if re.search(r'\(\*\)\s*$', name):
-            return 'BlackList'
-        else:
-            return 'Non-BlackList'
-    return name_series.apply(get_blacklist_status)
 
 @st.cache_data(ttl=0, show_spinner=False)
 def calculate_rfm(data: pd.DataFrame, today=None):
@@ -134,12 +86,12 @@ def calculate_rfm(data: pd.DataFrame, today=None):
                       .groupby([CUSTOMERID, field])
                       .size()
                       .reset_index(name='count')
-                      .sort_values([CUSTOMERID, 'count'], ascending=[True, False])
+                      .sort_values([CUSTOMERID,'count'], ascending=[True, True])
                       .groupby(CUSTOMERID)
-                      .first()
+                      .last()
                       .reset_index()
                       .rename(columns={field: f'{label} محبوب'}))
-
+            
             # Get last used
             last = (last_deals[[CUSTOMERID, field]]
                    .rename(columns={field: f'آخرین {label}'}))
