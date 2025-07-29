@@ -28,6 +28,7 @@ def exacute_query(query: str) -> pd.DataFrame:
     """
     start = time.time()
     try:
+        logger.info(f"Query: {str(query)}")
         client = bigquery.Client.from_service_account_info(credentials)
         df = client.query(query).to_dataframe(create_bqstorage_client=False)
         end = time.time()
@@ -62,17 +63,3 @@ def exacute_queries(queries: list[str]) -> None:
         return results
     except Exception:
         return None
-    
-def load_rfms() -> None:
-    if 'rfms' not in st.session_state:
-        queries = [
-            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`",
-            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before`",
-            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_six_months_before`",
-            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before`",
-            "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before`",
-        ]
-        results = asyncio.run(run_queries_in_parallel(queries))
-        st.session_state['rfms']=results
-    else:
-        return

@@ -24,7 +24,6 @@ def filter_tips(selected_complexes, all_tips):
 
 def customer_analyze():
     col1, col2 = st.columns(2)
-
     with col1: 
         vip_options = ['Non-VIP', 'Bronze VIP', 'Silver VIP', 'Gold VIP']
         vip_status = st.checkbox("انتخاب تمام وضعیت‌هایVIP", value=True, key='vips_checkbox')
