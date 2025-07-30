@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(".."))
 
 from utils.custom_css import apply_custom_css
 from utils.auth import login
-from utils.load_data import exacute_queries
+from utils.load_data import exacute_queries, exacute_query
 
 
 def main():
@@ -17,32 +17,31 @@ def main():
     apply_custom_css()
     st.subheader(" توزیع بخش‌بندی مشتریان در طول زمان")    
 
-
     if 'auth'in st.session_state and st.session_state.auth:    
-        if 'rfms' not in st.session_state:
-            rfms = exacute_queries([
-                        "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`",
-                        "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before`",
-                        "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_six_months_before`",
-                        "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before`",
-                        "SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before`",
-            ])
-            st.session_state['rfms'] = rfms
-        else:
-            rfms = st.session_state['rfms'].copy()
-            for i in range(5):
-                if i == 0:
-                    rfms[i]['quarter'] = "1-this month"
-                else:
-                    rfms[i]['quarter'] = f"{i+1}-{(i)*3} month ago"
-                
-                rfms[i] = rfms[i][~rfms[i]['rfm_segment'].str.contains('Lost|Risk')]
-
-            df_all = pd.concat(rfms, ignore_index=True)
-
-            # Count customers per segment per quarter
-            segment_counts = df_all.groupby(['quarter', 'rfm_segment'])['customer_id'].count().reset_index()
-            segment_counts.rename(columns={'customer_id': 'count'}, inplace=True)
+        # Instead of loading all data, fetch only the aggregated data needed for the plot directly from the database.
+        if 'rfms_segment_normalized' not in st.session_state:
+            # Compose a single query to get counts per segment per period, excluding 'Lost' and 'Risk'
+            query = """
+            WITH all_segments AS (
+                SELECT customer_id, rfm_segment, '1-this month' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                UNION ALL
+                SELECT customer_id, rfm_segment, '2-3 month ago' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before`
+                UNION ALL
+                SELECT customer_id, rfm_segment, '3-6 month ago' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_six_months_before`
+                UNION ALL
+                SELECT customer_id, rfm_segment, '4-9 month ago' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before`
+                UNION ALL
+                SELECT customer_id, rfm_segment, '5-12 month ago' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before`
+            )
+            SELECT
+                quarter,
+                rfm_segment,
+                COUNT(customer_id) AS count
+            FROM all_segments
+            WHERE NOT (rfm_segment LIKE '%Lost%' OR rfm_segment LIKE '%Risk%')
+            GROUP BY quarter, rfm_segment
+            """
+            segment_counts = exacute_queries([query])[0]
 
             # Compute total customers per quarter
             total_per_quarter = segment_counts.groupby('quarter')['count'].sum().reset_index()
@@ -53,44 +52,47 @@ def main():
             segment_normalized['percentage'] = segment_normalized['count'] / segment_normalized['total']
             segment_normalized = segment_normalized.sort_values(by='quarter', ascending=False)
 
-            # Select box for user to choose between real number or normalized
-            y_axis_option = st.selectbox(
-                "نمایش بر اساس:",
-                options=["تعداد", "نرمال شده"],
-                index=1
-            )
+            st.session_state['rfms_segment_normalized'] = segment_normalized
+        else:
+            segment_normalized = st.session_state['rfms_segment_normalized'].copy()
 
-            if y_axis_option == "تعداد":
-                y_col = 'count'
-                y_title = 'تعداد مشتریان'
-            else:
-                y_col = 'percentage'
-                y_title = 'درصد مشتریان'
+        # Select box for user to choose between real number or normalized
+        y_axis_option = st.selectbox(
+            "نمایش بر اساس:",
+            options=["تعداد", "نرمال شده"],
+            index=1
+        )
 
-            fig = px.line(
-                segment_normalized,
-                x='quarter',
-                y=y_col,
-                color='rfm_segment',
-                markers=True,
-                color_discrete_sequence=px.colors.qualitative.Set3 
-            )
-            fig.update_layout(
-                title={
-                    'text': 'تغییرات  در طول زمان',
-                    'x': 1,  # موقعیت افقی (1 = راست)
-                    'xanchor': 'right',  # لنگر به راست
-                    'yanchor': 'top'
-                },
-                xaxis_title='دوره',
-                yaxis_title=y_title,
-                legend_title='RFM Segment'
-            )
-            st.plotly_chart(fig)
+        if y_axis_option == "تعداد":
+            y_col = 'count'
+            y_title = 'تعداد مشتریان'
+        else:
+            y_col = 'percentage'
+            y_title = 'درصد مشتریان'
+
+        fig = px.line(
+            segment_normalized,
+            x='quarter',
+            y=y_col,
+            color='rfm_segment',
+            markers=True,
+            color_discrete_sequence=px.colors.qualitative.Set3 
+        )
+        fig.update_layout(
+            title={
+                'text': 'تغییرات  در طول زمان',
+                'x': 1,  
+                'xanchor': 'right',  
+                'yanchor': 'top'
+            },
+            xaxis_title='دوره',
+            yaxis_title=y_title,
+            legend_title='RFM Segment'
+        )
+        st.plotly_chart(fig)
         
         st.write('---')
         # Create two filters for period and segment selection for comparison
-        rfms = st.session_state.rfms.copy()
 
         months = ['این ماه', 'سه ماه پیش', 'شش ماه پیش', 'نه ماه پیش', 'دوازده ماه پیش']
         segments = [
@@ -110,40 +112,56 @@ def main():
             period2 = st.selectbox("دوره دوم را انتخاب کنید:", months, key="period2")
             segment2 = st.selectbox("سگمنت دوم را انتخاب کنید:", ['All'] + segments, key="segment2")
 
+
+
         # Map period to rfms index
         period_map = {
-            'این ماه': 0,
-            'سه ماه پیش': 1,
-            'شش ماه پیش': 2,
-            'نه ماه پیش': 3,
-            'دوازده ماه پیش': 4
+            'این ماه': 'customerhealth-crm-warehouse.didar_data.RFM_segments',
+            'سه ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before',
+            'شش ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_six_months_before',
+            'نه ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before',
+            'دوازده ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before'
         }
+
+
         if st.button("اجرا", key='calculate_rfm_button'):            
             if period_map.get(period1, 0) < period_map.get(period2, 0):
                 st.warning("دوره اول باید قبل از دوره دوم باشد")
-            
             else:
                 if segment2 == 'All':
                     segment2 = segments
-
-                df1 = rfms[period_map.get(period1, 0)]
-                df2 = rfms[period_map.get(period2, 0)]
-
-                # Filter customers in period 1 by selected segments
-                ids = df1[df1['rfm_segment'] == segment1]['customer_id'].unique().tolist()
                 
+                rfm_id_1 = period_map.get(period1)
+                rfm_id_2 = period_map.get(period2)
+
+                ids_query = f"""
+                            SELECT customer_id, rfm_segment FROM `{rfm_id_1}`
+                            WHERE rfm_segment = '{segment1}'
+                """
+                ids = exacute_query(ids_query)
+
                 # Distribution of those customers in period 2 by their segment
+                id_list_sql = ', '.join(str(i) for i in ids['customer_id'].values.tolist())
                 if isinstance(segment2, str):
-                    df2_selected = df2[df2['customer_id'].isin(ids)]
-                    seg2_dist = df2_selected[df2_selected['rfm_segment'] == segment2]['rfm_segment'].value_counts().reset_index()
+                    df2_query = f"""
+                            SELECT * FROM `{rfm_id_2}`
+                            WHERE rfm_segment = '{segment2}'
+                            AND customer_id IN ({id_list_sql})
+"""
                 else:
-                    df2_selected = df2[df2['customer_id'].isin(ids)]
-                    seg2_dist = df2_selected[df2_selected['rfm_segment'].isin(segment2)]['rfm_segment'].value_counts().reset_index()
+                    segments2 = ', '.join(f"'{i}'" for i in segment2)
+                    df2_query = f"""
+                            SELECT * FROM `{rfm_id_2}`
+                            WHERE rfm_segment IN ({segments2})
+                            AND customer_id IN ({id_list_sql})
+                    """
+                df2 = exacute_query(df2_query)
+                seg2_dist = df2['rfm_segment'].value_counts().reset_index()
 
                 seg2_dist.columns = ['rfm_segment', 'count']
 
                 # Plot bar chart for period 2
-                st.subheader(f"توزیع سگمنت مشتریان انتخابی در دوره دوم")
+                st.subheader("توزیع سگمنت مشتریان انتخابی در دوره دوم")
                 fig2 = px.bar(
                     seg2_dist,
                     x='rfm_segment',
@@ -154,8 +172,27 @@ def main():
                 )
                 fig2.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
                 st.plotly_chart(fig2, use_container_width=True)
+                data = pd.merge(df2, ids[ids['rfm_segment'] == segment1][['customer_id', 'rfm_segment']], on="customer_id")
 
-                st.write(pd.merge(df2_selected, df1[df1['rfm_segment'] == segment1][['customer_id', 'rfm_segment']], on="customer_id"))
+                # تغییر نام ستون‌ها به فارسی و تغییر نام rfm_segment_x و rfm_segment_y
+                data = data.rename(columns={
+                    'customer_id': 'شناسه مشتری',
+                    'first_name': 'نام',
+                    'last_name': 'نام خانوادگی',
+                    'phone_number': 'شماره تماس',
+                    'recency': 'تازگی خرید',
+                    'frequency': 'تعداد خرید',
+                    'monetary': 'ارزش خرید',
+                    'total_nights': 'مجموع شب‌ها',
+                    'last_reserve_date': 'تاریخ آخرین رزرو',
+                    'last_checkin': 'تاریخ ورود آخر',
+                    'last_checkout': 'تاریخ خروج آخر',
+                    'favorite_product': 'محصول مورد علاقه',
+                    'last_product': 'آخرین محصول',
+                    'rfm_segment_x': 'سگمنت دوره دوم',
+                    'rfm_segment_y': 'سگمنت دوره اول'
+                })
+                st.write(data)
     else:
         login()
 if __name__ == "__main__":

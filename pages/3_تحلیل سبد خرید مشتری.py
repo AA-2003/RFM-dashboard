@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import sys
 import plotly.express as px
-import time
+from utils.funcs import convert_df, convert_df_to_excel
 
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
@@ -11,7 +11,7 @@ from utils.load_data import exacute_query
 from utils.auth import login
 
 def to_sql_list(values):
-    return ', '.join(f"'{v}'" for v in values)
+    return ", ".join(f"'{v}'" for v in values)
 
 def filter_tips(selected_complexes, all_tips):
     return [
@@ -65,12 +65,12 @@ def main():
                                 'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
                                 'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
                                 '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers']
-            segment_status = st.checkbox("انتخاب تمام بخش‌ها", value=True, key='segments_checkbox')
+            segment_status = st.checkbox("انتخاب تمام سگمنت ها", value=True, key='segments_checkbox')
             if segment_status:
                 segment_values = semention_options
             else:
                 segment_values = st.multiselect(
-                    "انتخاب بخش:",
+                    "انتخاب سگمنت:",
                     options=semention_options,
                     default=[semention_options[0]],  # Default to first option
                     key='segment_multiselect_selectbox'
@@ -168,7 +168,7 @@ def main():
         ######################
 
         query = f"""
-        SELECT customer_id
+        SELECT *
         FROM (
             SELECT *,
                 (total_nights / frequency) AS average_stay,
@@ -201,80 +201,113 @@ def main():
         
         if st.button("محاسبه و نمایش RFM", key='calculate_rfm_button'):
             ids = exacute_query(query)
-            st.write(type(ids.loc[0, 'customer_id']))
-            # ids['customer_id'] = ids['customer_id'].astype(str)
+            customer_ids = ids['customer_id'].dropna().unique().tolist()
+            id_list_sql = ', '.join(str(int(i)) for i in customer_ids)
+
             deals_query =f"""SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
-                            WHERE Customer_id IN ({to_sql_list(ids['customer_id'].unique().tolist())})
+                            WHERE Customer_id IN ({id_list_sql})
                             LIMIT 100"""
             filtered_deals = exacute_query(deals_query)
-            st.write(filtered_deals)
-#                 # Get customers in selected clusters and VIP statuses
-    #                 customers_in_clusters = rfm_data[(rfm_data['RFM_segment_label'].isin(selected_clusters)) &
-    #                                                 (rfm_data['VIP Status'].isin(selected_vips_portfolio))]['Code'].unique()
-    #                 # Filter deals data
-    #                 deals_filtered = data_filtered_by_blacklist[data_filtered_by_blacklist[CUSTOMERID].isin(customers_in_clusters)]
+            products = exacute_query("""
+                            SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`
+                        """)
+            products.index = products['ProductCode']
+            filtered_deals['تیپ'] = filtered_deals['Product_code'].map(products['ProductName'])
 
-    #                 if deals_filtered.empty:
-    #                     st.warning("هیچ معامله‌ای با این شرایط پیدا نشد")
-    #                 else:
-    #                     # Frequency distribution
-    #                     frequency_distribution = deals_filtered.groupby(PRODUCTTITLE).size().reset_index(name='Frequency')
+            def map_complex(text):
+                keywords = {
+                    "جمهوری": "جمهوری",
+                    "اقدسیه": "اقدسیه",
+                    "جردن": "جردن",
+                    "شریعتی": "شریعتی (پاسداران)",
+                    "پاسداران": "شریعتی (پاسداران)",
+                    "وزرا": "وزرا",
+                    "کشاورز": "کشاورز",
+                    "مرزداران": "مرزداران",
+                    "میرداماد": "میرداماد",
+                    "ونک": "ونک",
+                    "ولنجک": "ولنجک",
+                    "پارک وی": "پارک وی",
+                    "بهشتی": "بهشتی",
+                    "ولیعصر": "ولیعصر",
+                    "ویلا": "ویلا",
+                    "کوروش": "کوروش",
+                    "ترنج": "ترنج"
+                }
 
-    #                     # Monetary distribution
-    #                     monetary_distribution = deals_filtered.groupby(PRODUCTTITLE)[DEALVALUE].sum().reset_index()
+                # Ensure text is a string and not NaN/None/float
+                if not isinstance(text, str):
+                    return None
+                for word in keywords:
+                    if word in text:
+                        return word
+                return None  
 
-    #                     # Plot Frequency Distribution
-    #                     st.subheader("توزیع فراوانی معاملات روی این محصولات")
-    #                     fig_freq = px.bar(
-    #                         frequency_distribution,
-    #                         x=PRODUCTTITLE,
-    #                         y='Frequency',
-    #                         title='توزیع فراوانی',
-    #                         labels={PRODUCTTITLE: 'Product', 'Frequency': 'Number of Purchases'},
-    #                         text='Frequency'
-    #                     )
-    #                     fig_freq.update_traces(textposition='outside')
-    #                     st.plotly_chart(fig_freq)
+            filtered_deals['مجتمع'] = filtered_deals['تیپ'].map(map_complex)
+            filtered_deals = filtered_deals[
+                filtered_deals['تیپ'].isin(tip_values)
+            ]
 
-    #                     # Plot Monetary Distribution
-    #                     st.subheader("توزیع ارزش مالی معاملات روی این محصولات")
-    #                     fig_monetary = px.bar(
-    #                         monetary_distribution,
-    #                         x=PRODUCTTITLE,
-    #                         y=DEALVALUE,
-    #                         title='توزیع مالی',
-    #                         labels={PRODUCTTITLE: 'Product', DEALVALUE: 'Total Monetary Value'},
-    #                         text=DEALVALUE
-    #                     )
-    #                     fig_monetary.update_traces(textposition='outside')
-    #                     st.plotly_chart(fig_monetary)
+            if filtered_deals.empty:
+                st.warning("هیچ معامله‌ای با این شرایط پیدا نشد")
+            else:
+                frequency_distribution = filtered_deals.groupby("مجتمع").size().reset_index(name='Frequency')
 
-    #                     # Customer Details Table
-    #                     st.subheader("Customer Details")
-    #                     successful_deals = deals_filtered[deals_filtered[DEALSTATUS] == 'Won']
+                # Monetary distribution
+                monetary_distribution = filtered_deals.groupby("مجتمع")['DealValue'].sum().reset_index()
 
-    #                     customer_nights = successful_deals.groupby([CUSTOMERID, PRODUCTTITLE])['nights'].sum().unstack(fill_value=0)
+                # Plot Frequency Distribution
+                st.subheader("توزیع فراوانی معاملات روی این محصولات")
+                fig_freq = px.bar(
+                    frequency_distribution,
+                    x='مجتمع',
+                    y='Frequency',
+                    title='توزیع فراوانی',
+                    labels={'مجتمع': 'مجتمع', 'Frequency': 'تعداد خرید'},
+                    text='Frequency'
+                )
+                fig_freq.update_traces(textposition='outside')
+                st.plotly_chart(fig_freq)
 
-    #                     customer_details = rfm_data[rfm_data['Code'].isin(customers_in_clusters)][['Code', 'Name', 'VIP Status','average stay','Is staying', 'RFM_segment_label', 'Recency', 'Frequency', 'Monetary']]
-    #                     customer_details = customer_details.merge(customer_nights, left_on='Code', right_index=True, how='inner').fillna(0)
-                        
-    #                     st.write(customer_details)
-    #                     # Download buttons
-    #                     col1, col2 = st.columns(2)
-    #                     with col1:
-    #                         st.download_button(
-    #                             label="Download data as CSV",
-    #                             data=convert_df(customer_details),
-    #                             file_name='portfolio_analysis.csv',
-    #                             mime='text/csv',
-    #                         )
-    #                     with col2:
-    #                         st.download_button(
-    #                             label="Download data as Excel",
-    #                             data=convert_df_to_excel(customer_details),
-    #                             file_name='portfolio_analysis.xlsx',
-    #                             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    #                         )
+                # Plot Monetary Distribution
+                st.subheader("توزیع ارزش مالی معاملات روی این محصولات")
+                fig_monetary = px.bar(
+                    monetary_distribution,
+                    x='مجتمع',
+                    y='DealValue',
+                    title='توزیع مالی',
+                    labels={'مجتمع': 'مجتمع', 'DealValue': 'Total Monetary Value'},
+                    text='DealValue'
+                )
+                fig_monetary.update_traces(textposition='outside')
+                st.plotly_chart(fig_monetary)
+
+                # Customer Details Table
+                st.subheader("Customer Details")
+                successful_deals = filtered_deals[filtered_deals['Status'] == 'Won']
+
+                customer_nights = successful_deals.groupby(["Customer_id", "مجتمع"])['N`ights'].sum().unstack(fill_value=0)
+                st.write(customer_nights)
+                # customer_details = ids[ids['Customer_id'].isin(ids)][['Code', 'Customer_id', 'VIP Status','average stay','Is staying', 'RFM_segment_label', 'Recency', 'Frequency', 'Monetary']]
+                # customer_details = customer_details.merge(customer_nights, left_on='Code', right_index=True, how='inner').fillna(0)
+                
+                # st.write(customer_details)
+                # # Download buttons
+                # col1, col2 = st.columns(2)
+                # with col1:
+                #     st.download_button(
+                #         label="Download data as CSV",
+                #         data=convert_df(customer_details),
+                #         file_name='portfolio_analysis.csv',
+                #         mime='text/csv',
+                #     )
+                # with col2:
+                #     st.download_button(
+                #         label="Download data as Excel",
+                #         data=convert_df_to_excel(customer_details),
+                #         file_name='portfolio_analysis.xlsx',
+                #         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    # )
         
     else:
         login()
