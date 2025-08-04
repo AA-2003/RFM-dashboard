@@ -3,134 +3,110 @@ import pandas as pd
 import numpy as np
 import os
 import sys
-from datetime import timedelta
-import plotly.express as px
-import plotly.graph_objects as go
+
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
+from utils.auth import login
+from utils.load_data import exacute_query
 
 def main():
-    """Main function to run the Streamlit app."""
+    """Main function """
     st.set_page_config(page_title="سرچ مشتری", page_icon="📊", layout="wide")
     apply_custom_css()
     st.title("ماژول استعلام و تحلیل مشتری")
     # Check data availability and login first
     if 'auth'in st.session_state and st.session_state.auth:    
-        if 'data' in st.session_state and st.session_state.data is not None and not st.session_state.data.empty:
+        with st.form(key='customer_inquiry_form'):
+            st.write("برای جستجوی مشتری، حداقل یکی از فیلدهای زیر را وارد کنید: ")
 
-            data = st.session_state.data
-            rfm_data = st.session_state.rfm_data
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                input_last_name = st.text_input("نام")
+            with col2:
+                input_phone_number = st.text_input("شماره تلفن")
+            with col3:
+                input_customer_id = st.text_input("کد دیدار مشتری")
 
-            with st.form(key='customer_inquiry_form'):
-                st.write("Enter at least one of the following fields to search for a customer:")
+            submit_inquiry = st.form_submit_button(label='جست‌وجو')
 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    input_last_name = st.text_input("Name")
-                with col2:
-                    input_phone_number = st.text_input("Phone Number")
-                with col3:
-                    input_customer_id = st.text_input("Customer ID")
+        if submit_inquiry:
+            if not input_last_name and not input_phone_number and not input_customer_id:
+                st.error("حداقل یکی از موارد را پر کنید.")
+            else:
+                # Build filters safely and correctly
+                filters = []
+                if input_last_name:
+                    filters.append(f"Last_name LIKE '%{input_last_name}%'")
+                if input_phone_number:
+                    filters.append(f"phone_number LIKE '%{input_phone_number}%'")
+                if input_customer_id:
+                    try:
+                        customer_id_int = int(input_customer_id)
+                        filters.append(f"customer_id = {customer_id_int}")
+                    except ValueError:
+                        st.error("کد مشتری باید عدد باشد.")
+                        filters.append("1=0")  # Prevent query if invalid
 
-                submit_inquiry = st.form_submit_button(label='Search')
+                # Always require last_name is not null or empty
+                filters.insert(0, "Last_name IS NOT NULL AND Last_name != ''")
+                where_clause = " AND ".join(filters)
 
-            if submit_inquiry:
-                if not input_last_name and not input_phone_number and not input_customer_id:
-                    st.error("Please enter at least one of Last Name, Phone Number, or Customer ID.")
+                query = f"""
+                    SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                    WHERE {where_clause}
+                """
+                rfm_data = exacute_query(query)
+
+                if rfm_data is None or rfm_data.empty:
+                    st.info('هیچ مشتری با این مشخصات وجود ندارد!!')
                 else:
-                    # Filter rfm_data based on inputs
-                    inquiry_results = rfm_data.copy()
-
-                    if input_last_name:
-                        inquiry_results = inquiry_results[inquiry_results['Name'].str.contains(input_last_name, na=False)]
-                    if input_phone_number:
-                        inquiry_results = inquiry_results[inquiry_results['Phone Number'].astype(str).str.contains(input_phone_number)]
-                    if input_customer_id:
-                        inquiry_results = inquiry_results[inquiry_results['Code'].astype(str).str.contains(input_customer_id)]
-
-                    if inquiry_results.empty:
-                        st.warning("No customers found matching the given criteria.")
+                    ids = rfm_data['customer_id'].dropna().astype(int).unique().tolist()
+                    if ids:
+                        deals_query = f"""
+                            SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
+                            WHERE Customer_id IN ({', '.join(str(id) for id in ids)})
+                        """
                     else:
-                        st.success(f"Found {len(inquiry_results)} customer(s) matching the criteria.")
+                        deals_query = None
+                    deals = exacute_query(deals_query)
+                    for _, customer in rfm_data.iterrows():
+                        st.markdown("---")
+                        # Display customer info in columns for better layout
+                        info1, info2, info3 = st.columns([2, 2, 2])
+                        with info1:
+                            st.markdown(f"**کد دیدار مشتری:**<br>{customer['customer_id']}", unsafe_allow_html=True)
+                            st.markdown(f"**نام:**<br>{customer['first_name'] if customer['first_name'] is not None else ''  } {customer['last_name']}", unsafe_allow_html=True)
+                            st.markdown(f"**شماره همراه:**<br>{customer['phone_number']}", unsafe_allow_html=True)
+                        with info2:
+                            st.markdown(f"**تازگی (Recency):**<br>{customer['recency']} روز", unsafe_allow_html=True)
+                            st.markdown(f"**تکرار خرید (Frequency):**<br>{customer['frequency']}", unsafe_allow_html=True)
+                            st.markdown(f"**ارزش خرید (Monetary):**<br>{round(customer['monetary'], 2)}", unsafe_allow_html=True)
+                        with info3:
+                            st.markdown(f"**سگمنت RFM:**<br><span style='color:#2b9348;font-weight:bold'>{customer['rfm_segment']}</span>", unsafe_allow_html=True)
 
-                        # Display customer information
-                        for index, customer in inquiry_results.sort_values(by='Recency', ascending=True).iterrows():
-                            st.markdown("---")
-                            st.subheader(f"Customer ID: {customer['Code']}")
-                            st.write(f"**Name:** {customer['Name']}")
-                            st.write(f"**Phone Number:** {customer['Phone Number']}")
-                            st.write(f"**VIP Status:** {customer['VIP Status']}")
-                            st.write(f"**Recency:** {customer['Recency']} days")
-                            st.write(f"**Frequency:** {customer['Frequency']}")
-                            st.write(f"**Monetary:** {round(customer['Monetary'], 2)}")
-                            st.write(f"**Segment:** {customer['RFM_segment_label']}")
-
-                            # Fetch deal history
-                            customer_deals = data[data['person_code'] == customer['Code']]
+                        # Show deals history in an expandable section
+                        customer_deals = deals[deals['Customer_id'] == customer['customer_id']]
+                        with st.expander("مشاهده سوابق معامله", expanded=not customer_deals.empty):
                             if customer_deals.empty:
-                                st.write("No deal history available.")
+                                st.info("سابقه معامله‌ای وجود ندارد.")
                             else:
-                                st.write("**Deal History:**")
-                                deal_history = customer_deals[['deal_done_date', 'product_title', 'deal_value', 'deal_status']].copy()
-                                # Adjust monetary values for display
-                                deal_history['deal_value'] = deal_history['deal_value'].round(2)
-                                st.dataframe(deal_history)
-
-            # New Feature: Upload Excel or CSV File and Select Column Type
-            st.subheader("Bulk Customer Inquiry")
-
-            uploaded_file = st.file_uploader("Upload an Excel or CSV file", type=['xlsx', 'csv'])
-            if uploaded_file is not None:
-                try:
-                    if uploaded_file.name.endswith('.csv'):
-                        file_data = pd.read_csv(uploaded_file)
-                    else:
-                        file_data = pd.read_excel(uploaded_file)
-
-                    st.write("File uploaded successfully!")
-                    st.write("Columns in the file:", list(file_data.columns))
-
-                    selected_column = st.selectbox("Select the column to search by", file_data.columns)
-
-                    column_type = st.radio("What does the selected column contain?", ["Numbers", "Names", "IDs"])
-
-                    if st.button("Search from File"):
-                        if column_type == "Numbers":
-                            matching_results = rfm_data[rfm_data['Phone Number'].astype(str).isin(file_data[selected_column].astype(str))]
-                        elif column_type == "Names":
-                            matching_results = rfm_data[rfm_data['Last Name'].isin(file_data[selected_column])]
-                        elif column_type == "IDs":
-                            matching_results = rfm_data[rfm_data['Code'].astype(str).isin(file_data[selected_column].astype(str))]
-                        else:
-                            matching_results = pd.DataFrame()
-
-                        # Separate results into existing and new users
-                        file_data['Exists_in_Dataset'] = file_data[selected_column].astype(str).isin(rfm_data['Code'].astype(str)) | \
-                                                        file_data[selected_column].astype(str).isin(rfm_data['Phone Number'].astype(str)) | \
-                                                        file_data[selected_column].isin(rfm_data['Last Name'])
-
-                        existing_users = file_data[file_data['Exists_in_Dataset']]
-                        new_users = file_data[~file_data['Exists_in_Dataset']]
-
-                        # Display existing users
-                        if not existing_users.empty:
-                            st.success(f"Found {len(existing_users)} existing customer(s) from the uploaded file.")
-                            st.dataframe(matching_results)
-
-                        # Display new users (Acquisition users)
-                        if not new_users.empty:
-                            st.warning(f"Identified {len(new_users)} new user(s) not present in the dataset.")
-                            st.subheader("Acquisition Users")
-                            st.dataframe(new_users)
-
-                except Exception as e:
-                    st.error(f"Error processing file: {e}")
-            
-        else:
-            st.warning('ابتدا از صفحه اصلی داده را بارگذاری کنید!')
+                                # Show only relevant columns and format
+                                show_cols = [
+                                    col for col in [
+                                        "DealID", "DealCreateDate", "DealValue", "Status", "DealChannel", "DealType", "Nights", "DealExpert"
+                                    ] if col in customer_deals.columns
+                                ]
+                                deals_to_show = customer_deals[show_cols].copy()
+                                deals_to_show['DealValue'] = deals_to_show['DealValue'].round(2)
+                                deals_to_show = deals_to_show.sort_values(by="DealCreateDate", ascending=False)
+                                st.dataframe(
+                                    deals_to_show,
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
     else:
-        st.warning('ابتدا وارد اکانت خود شوید!')
+        login()
 
 if __name__ == "__main__":
     main()

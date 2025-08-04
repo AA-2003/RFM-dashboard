@@ -5,6 +5,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 import plotly.express as px
+import plotly.graph_objects as go
 from streamlit_nej_datepicker import datepicker_component, Config
 import jdatetime
 
@@ -14,32 +15,32 @@ from utils.custom_css import apply_custom_css
 from utils.auth import login
 from utils.load_data import exacute_query
 
-def get_first_successful_deal_date(selected_channels):
+def get_first_successful_deal_date(selected_sellers):
     """
-    Fetches the first successful deal date for each customer from BigQuery, filtered by date and channels.
-    Returns a DataFrame with columns: Customer_id, first_successful_deal_date, DealChannel
+    Fetches the first successful deal date for each customer from BigQuery, filtered by date and sellers.
+    Returns a DataFrame with columns: Customer_id, first_successful_deal_date, DealExpert
     """
     query = f"""
         WITH first_deals AS (
             SELECT
                 Customer_id,
-                DealChannel,
-                DealCreateDate,
-                ROW_NUMBER() OVER (PARTITION BY Customer_id ORDER BY DealCreateDate ASC) as rn
+                DealExpert,
+                DealDate,
+                ROW_NUMBER() OVER (PARTITION BY Customer_id ORDER BY DealDate ASC) as rn
             FROM `customerhealth-crm-warehouse.didar_data.deals`
             WHERE
                 Status = 'Won'
         )
         SELECT
             Customer_id,
-            DealChannel,
-            DealCreateDate AS first_successful_deal_date
+            DealExpert,
+            DealDate AS first_successful_deal_date
         FROM first_deals
         WHERE rn = 1
     """
     result = exacute_query(query)
-    if selected_channels:
-        result = result[result['DealChannel'].isin(selected_channels)]
+    if selected_sellers:
+        result = result[result['DealExpert'].isin(selected_sellers)]
     return result
 
 def pct_diff(new_val, old_val):
@@ -49,7 +50,7 @@ def pct_diff(new_val, old_val):
 
 
 @st.cache_data(ttl=3600)
-def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date_str, horizontal=True):
+def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_str, horizontal=True):
     # Calculate KPIs    
     total_deals = len(deals)
     successful_deals = deals[deals['Status'] == 'Won']
@@ -217,9 +218,9 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date
 
 
 def main():
-    st.set_page_config(page_title="تحلیل کانال فروش", page_icon="📊", layout="wide")
+    st.set_page_config(page_title="تحلیل فروشنده", page_icon="📊", layout="wide")
     apply_custom_css()
-    st.header("تحلیل کانال فروش")
+    st.header("تحلیل فروشنده")
     
     # Check data availability and login first
     if 'auth' in st.session_state and st.session_state.auth:    
@@ -254,36 +255,33 @@ def main():
                 result = exacute_query(query)
                 end_date = result['max_deal_date'].iloc[0].date()
 
-        ### channels filter     
+        ### sellers filter     
         with col2:
-            channels_query = """
-                select DealChannel from `customerhealth-crm-warehouse.didar_data.deals`
-                group by DealChannel
+            sellers_query = """
+                select DealExpert from `customerhealth-crm-warehouse.didar_data.deals`
+                group by DealExpert
                 """
-            channels_options = exacute_query(channels_query)['DealChannel'].values.tolist()
-            select_all = st.checkbox("انتخاب همه کانال‌های فروش‌", value=True, key='channels_select_all_checkbox')
+            sellers_options = exacute_query(sellers_query)['DealExpert'].values.tolist()
+            select_all = st.checkbox("انتخاب همه فروشنده‌ها", value=True, key='sellers_select_all_checkbox')
             if select_all:
-                selected_channels = channels_options
+                selected_sellers = sellers_options
             else:
-                selected_channels = st.multiselect(
-                    "انتخاب  کانال فروش: ",
-                    options=channels_options,
+                selected_sellers = st.multiselect(
+                    "انتخاب  فروشنده: ",
+                    options=sellers_options,
                     default=[],
-                    key='channels_multiselect_box'
+                    key='sellers_multiselect_box'
                 )
-            if len(selected_channels)==1:
-                channel_transitions = st.checkbox("بررسی انتقال میان کانالها؟", value=True, key='channel_transitions_checkbox')
-
             
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
 
-        if st.button("محاسبه و نمایش", key='calculate_button'):
-            df_first_deals = get_first_successful_deal_date(selected_channels)
-            channels_list = ','.join([f"'{channel}'" for channel in selected_channels])
+        if st.button("محاسبه و نمایش", key='calculate_rfm_button'):
+            df_first_deals = get_first_successful_deal_date(selected_sellers)
+            sellers_list = ','.join([f"'{seller}'" for seller in selected_sellers])
             deals_query = f"""
                 SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
-                WHERE DealChannel IN ({channels_list})  
+                WHERE DealExpert IN ({sellers_list})  
                 AND DealCreateDate BETWEEN DATE('{start_date_str}') AND DATE('{end_date_str}')
                 """
             deals = exacute_query(deals_query)
@@ -300,45 +298,45 @@ def main():
 
             prev_deals_query = f"""
                 SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
-                WHERE DealChannel IN ({channels_list})  
+                WHERE DealExpert IN ({sellers_list})  
                 AND DealCreateDate BETWEEN DATE('{prev_start_date_str}') AND DATE('{prev_end_date_str}')
                 """
             prev_deals = exacute_query(prev_deals_query)
 
-            if not selected_channels:
-                st.warning('حداقل یک کانال فروش را انتخاب کنید!')
-            match len(selected_channels):
+            if not selected_sellers:
+                st.warning('حداقل یک فروشنده را انتخاب کنید!')
+            match len(selected_sellers):
                 case 1:
-                    # analysise on channel
-                    channel_analysis(
+                    # analyse on seller
+                    seller_analys(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
                     )
-                    
-                    if channel_transitions:
-                        pass
-                        # implement in future
+                    #################################################################
+                    # محاسبه اش اشتباه هست. اطلاع بدم
+                    # مثلا شخص با کد 8243 کلا یه معامله موفق داره ولی 3 تا براش ثبت شده 
+                    #################################################################
 
                 case 2:
-                    # compare two channels
+                    # compare two sellers
                     col1, col2 = st.columns(2)
-                    channel1, channel2 = selected_channels
+                    seller1, seller2 = selected_sellers
                     with col1:                        
-                        st.write(channel1)
-                        channel_analysis(
-                            deals[deals['DealChannel']==channel1], prev_deals[prev_deals['DealChannel']==channel1], df_first_deals, start_date_str, end_date_str, False
+                        st.write(seller1)
+                        seller_analys(
+                            deals[deals['DealExpert']==seller1], prev_deals[prev_deals['DealExpert']==seller1], df_first_deals, start_date_str, end_date_str, False
                         )
                     with col2:
-                        st.write(channel2)
-                        channel_analysis(
-                            deals[deals['DealChannel']==channel2], prev_deals[prev_deals['DealChannel']==channel2], df_first_deals, start_date_str, end_date_str, False
+                        st.write(seller2)
+                        seller_analys(
+                            deals[deals['DealExpert']==seller2], prev_deals[prev_deals['DealExpert']==seller2], df_first_deals, start_date_str, end_date_str, False
                         )
 
                 case _:
-                    # compare more than two channels
+                    # compare more than two sellers
                     metrics = []
 
-                    # Collect all unique customer_ids for all selected channels
-                    all_customer_ids = deals[deals['DealChannel'].isin(selected_channels)]['Customer_id'].unique().tolist()
+                    # Collect all unique customer_ids for all selected sellers
+                    all_customer_ids = deals[deals['DealExpert'].isin(selected_sellers)]['Customer_id'].unique().tolist()
                     if all_customer_ids:
                         all_customer_ids_list = ', '.join(str(int(id)) for id in all_customer_ids)
                         cluster_query = f"""
@@ -350,40 +348,40 @@ def main():
                         all_cluster_df = pd.DataFrame()
 
 
-                    for channel in selected_channels:
-                        channel_deals = deals[deals['DealChannel'] == channel]
-                        channel_successful = channel_deals[channel_deals['Status'] == 'Won']
-                        total_deals = len(channel_deals)
-                        successful_deals = len(channel_successful)
-                        total_value = channel_deals['DealValue'].sum() / 10 if not channel_deals.empty else 0
+                    for seller in selected_sellers:
+                        seller_deals = deals[deals['DealExpert'] == seller]
+                        seller_successful = seller_deals[seller_deals['Status'] == 'Won']
+                        total_deals = len(seller_deals)
+                        successful_deals = len(seller_successful)
+                        total_value = seller_deals['DealValue'].sum() / 10 if not seller_deals.empty else 0
                         # Success rate
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0
                         # Total nights
-                        total_nights = channel_deals['Nights'].sum() if 'Nights' in channel_deals.columns and not channel_deals.empty else 0
+                        total_nights = seller_deals['Nights'].sum() if 'Nights' in seller_deals.columns and not seller_deals.empty else 0
                         # New customers
                         if (
                             df_first_deals is not None
-                            and not channel_deals.empty
+                            and not seller_deals.empty
                             and 'first_successful_deal_date' in df_first_deals.columns
                         ):
-                            # Get customer ids for this channel
-                            customer_ids = channel_deals['Customer_id'].unique().tolist()
-                            # Filter first deals for this channel and date range
-                            channel_first_deals = df_first_deals[
-                                (df_first_deals['DealChannel'] == channel) &
+                            # Get customer ids for this seller
+                            customer_ids = seller_deals['Customer_id'].unique().tolist()
+                            # Filter first deals for this seller and date range
+                            seller_first_deals = df_first_deals[
+                                (df_first_deals['DealExpert'] == seller) &
                                 (df_first_deals['first_successful_deal_date'] >= start_date_str) &
                                 (df_first_deals['first_successful_deal_date'] <= end_date_str)
                             ]
-                            new_customers = channel_first_deals['Customer_id'].nunique()
+                            new_customers = seller_first_deals['Customer_id'].nunique()
                         else:
                             new_customers = 0
 
-                        # Get customer ids for this channel (for segment)
-                        customer_ids = channel_deals['Customer_id'].unique().tolist()
+                        # Get customer ids for this seller (for segment)
+                        customer_ids = seller_deals['Customer_id'].unique().tolist()
                         if customer_ids and not all_cluster_df.empty and 'rfm_segment' in all_cluster_df.columns:
-                            channel_cluster_df = all_cluster_df[all_cluster_df['customer_id'].isin(customer_ids)]
-                            if not channel_cluster_df.empty:
-                                seg_counts = channel_cluster_df['rfm_segment'].value_counts()
+                            seller_cluster_df = all_cluster_df[all_cluster_df['customer_id'].isin(customer_ids)]
+                            if not seller_cluster_df.empty:
+                                seg_counts = seller_cluster_df['rfm_segment'].value_counts()
                                 top_segment = seg_counts.idxmax()
                             else:
                                 top_segment = "-"
@@ -391,7 +389,7 @@ def main():
                             top_segment = "-"
 
                         metrics.append({
-                            "کانال فروش": channel,
+                            "فروشنده": seller,
                             "تعداد معاملات موفق": successful_deals,
                             "ارزش کل معاملات": total_value,
                             "تعداد کل معاملات": total_deals,
@@ -401,40 +399,40 @@ def main():
                             "سگمنت غالب": top_segment
                         })
                     metrics_df = pd.DataFrame(metrics)
-                    st.subheader("مقایسه کانال های فروش(جدول شاخص‌ها)")
+                    st.subheader("مقایسه فروشندگان (جدول شاخص‌ها)")
                     st.dataframe(metrics_df.sort_values(by='تعداد معاملات موفق', ascending=False).reset_index(drop=True), use_container_width=True)
 
-                    # فقط 10 کانال فروش اول را نمایش بده و مبلغ را به میلیون تومان نمایش بده
+                    # فقط 10 فروشنده اول را نمایش بده و مبلغ را به میلیون تومان نمایش بده
 
                     # Sort by تعداد معاملات موفق and take top 10
                     top10_metrics_df = metrics_df.sort_values("تعداد معاملات موفق", ascending=False).head(10)
 
-                    # Bar chart: تعداد معاملات موفق per channel (top 10)
+                    # Bar chart: تعداد معاملات موفق per seller (top 10)
                     fig1 = px.bar(
                         top10_metrics_df,
-                        x="کانال فروش",
+                        x="فروشنده",
                         y="تعداد معاملات موفق",
-                        title="تعداد معاملات موفق هر کانال فروش (۱۰ نفر اول)",
+                        title="تعداد معاملات موفق هر فروشنده (۱۰ نفر اول)",
                         text="تعداد معاملات موفق",
-                        color="کانال فروش"
+                        color="فروشنده"
                     )
-                    fig1.update_layout(xaxis_title="کانال فروش", yaxis_title="تعداد معاملات موفق")
+                    fig1.update_layout(xaxis_title="فروشنده", yaxis_title="تعداد معاملات موفق")
                     st.plotly_chart(fig1, use_container_width=True)
 
                     # مبلغ را به میلیون تومان تبدیل کن
                     top10_metrics_df = top10_metrics_df.copy()
                     top10_metrics_df["ارزش کل معاملات (میلیون تومان)"] = (top10_metrics_df["ارزش کل معاملات"] / 1000).round(2)
 
-                    # Bar chart: ارزش کل معاملات per channel (top 10, میلیون تومان)
+                    # Bar chart: ارزش کل معاملات per seller (top 10, میلیون تومان)
                     fig2 = px.bar(
                         top10_metrics_df.sort_values(by="ارزش کل معاملات", ascending=False),
-                        x="کانال فروش",
+                        x="فروشنده",
                         y="ارزش کل معاملات (میلیون تومان)",
-                        title="ارزش کل معاملات هر کانال فروش (۱۰ نفر اول)",
+                        title="ارزش کل معاملات هر فروشنده (۱۰ نفر اول)",
                         text="ارزش کل معاملات (میلیون تومان)",
-                        color="کانال فروش"
+                        color="فروشنده"
                     )
-                    fig2.update_layout(xaxis_title="کانال فروش", yaxis_title="ارزش کل معاملات (میلیون تومان)")
+                    fig2.update_layout(xaxis_title="فروشنده", yaxis_title="ارزش کل معاملات (میلیون تومان)")
                     st.plotly_chart(fig2, use_container_width=True)
     else:
         login()

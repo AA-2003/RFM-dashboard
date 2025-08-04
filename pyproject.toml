@@ -14,4 +14,5 @@ dependencies = [
     "polars>=1.31.0",
     "scikit-learn>=1.7.1",
     "streamlit>=1.47.0",
+    "streamlit-nej-datepicker>=1.0.3",
 ]

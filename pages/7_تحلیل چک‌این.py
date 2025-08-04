@@ -2,31 +2,25 @@ import streamlit as st
 import pandas as pd
 import os
 import sys
-from io import BytesIO
 from datetime import time, timedelta
+from streamlit_nej_datepicker import datepicker_component, Config
+import jdatetime
+
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
-from utils.logger import logger
-from utils.constants import COLOR_MAP, CHECKINDATE, CHECKOUTDATE, COMPLEX, PRODUCTTITLE, DEALTYPE
-import plotly.express as px
-import plotly.graph_objects as go
-import numpy as np
+from utils.auth import login
+from utils.load_data import exacute_query, exacute_queries
 
 
-@st.cache_data
-def convert_df(df):
-    # Cache the conversion to prevent computation on every rerun
-    return df.to_csv(index=False).encode('utf-8')
-
-@st.cache_data
-def convert_df_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    processed_data = output.getvalue()
-    return processed_data
-
+def filter_tips(selected_complexes, all_tips):
+    if len(selected_complexes) == 0:
+        return all_tips
+    else:
+        return [
+            tip for tip in all_tips
+            if any(complex_name in tip for complex_name in selected_complexes)
+        ]
 
 def main():
     """Main function to run the Streamlit app."""
@@ -34,154 +28,176 @@ def main():
     apply_custom_css()
     st.title("تحلیل وضعیت چک‌این مجتمع‌ها")
     # Check data availability and login first
-    if 'auth'in st.session_state and st.session_state.auth:    
-        if 'data' in st.session_state and st.session_state.data is not None and not st.session_state.data.empty:
+    if 'auth'in st.session_state and st.session_state.auth:  
 
-            data = st.session_state.data
+        # Only deals where the difference between checking and checkout is equal to the number of nights 
+        checkin_query = """
+            SELECT 
+                MIN(Checkin_date) AS min_date, 
+                MAX(Checkin_date) AS max_date
+            FROM `customerhealth-crm-warehouse.didar_data.deals`
+            WHERE DATE_DIFF(CAST(Checkout AS DATE), CAST(Checkin_date AS DATE), DAY) = Nights
+            AND Status = 'Won'
+        """
+        result_df = exacute_query(checkin_query)
 
-            # Ensure CHECKINDATE is a proper datetime column
-            data[CHECKINDATE] = pd.to_datetime(data[CHECKINDATE], errors='coerce')
-            # Drop rows with no arrival date
-            df_arrivals = data.dropna(subset=[CHECKINDATE]).copy()
+        min_date = result_df.iloc[0]['min_date']
+        max_date = result_df.iloc[0]['max_date']
 
-            if df_arrivals.empty:
-                st.warning("No valid arrival dates found in the dataset.")
-                st.stop()
+        col1, _, col2, *_ = st.columns([5, 1, 5, 1, 1])
 
-            # Get the min/max arrival dates from the data
-            min_date_dt = df_arrivals[CHECKINDATE].min()
-            max_date_dt = df_arrivals[CHECKINDATE].max()
-
-            if pd.isna(min_date_dt) or pd.isna(max_date_dt):
-                st.warning("Date range is invalid. Please check your data.")
-                st.stop()
-
-            min_date = min_date_dt.date()
-            max_date = max_date_dt.date()
-
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input(
-                    "Start of arrival date range",
-                    value=min_date,
-                    min_value=min_date,
-                    max_value=max_date
-                )
-            with col2:
-                end_date = st.date_input(
-                    "End of arrival date range",
-                    value=max_date,
-                    min_value=min_date,
-                    max_value=max_date
-                )
-
-            if start_date > end_date:
-                st.error("Start date cannot be after end date.")
-                st.stop()
-
-            # 2) --- FILTERS ON COMPLEXES AND HOUSE TYPES (DEPENDENT) ---
-
-            # Complex filter
-            complex_options = sorted(df_arrivals[COMPLEX].dropna().unique().tolist())
-            select_all_complexes = st.checkbox("Select all complexes", value=True)
-            if select_all_complexes:
-                selected_complexes = complex_options
-            else:
-                selected_complexes = st.multiselect(
-                    "Select complexes:",
-                    options=complex_options,
-                    default=[]
-                )
-            if not selected_complexes:
-                st.warning("No complexes selected. Showing all by default.")
-                selected_complexes = complex_options
-
-            # Narrow down product options only to what's in the chosen complexes:
-            temp_for_complex = df_arrivals[df_arrivals[COMPLEX].isin(selected_complexes)]
-            product_options = sorted(temp_for_complex[PRODUCTTITLE].dropna().unique().tolist())
-
-            # House type (product) filter
-            select_all_products = st.checkbox("Select all house types", value=True)
-            if select_all_products:
-                selected_products = product_options
-            else:
-                selected_products = st.multiselect(
-                    "Select house types:",
-                    options=product_options,
-                    default=[]
-                )
-            if not selected_products:
-                st.warning("No house types selected. Showing all by default.")
-                selected_products = product_options
-
-            # 3) --- APPLY ALL FILTERS ---
-            mask = (
-                (df_arrivals[CHECKINDATE].dt.date >= start_date) &
-                (df_arrivals[CHECKINDATE].dt.date <= end_date) &
-                (df_arrivals[COMPLEX].isin(selected_complexes)) &
-                (df_arrivals[PRODUCTTITLE].isin(selected_products))
+        ### date filter
+        with col1:
+            config = Config(
+                always_open=True,
+                dark_mode=True,
+                locale="fa",
+                minimum_date=min_date,
+                maximum_date=max_date,
+                color_primary="#ff4b4b",
+                color_primary_light="#ff9494",
+                selection_mode="range",
+                placement="bottom",
+                disabled=False
             )
-            filtered_df = df_arrivals[mask].copy()
+            res = datepicker_component(config=config)
 
-            if filtered_df.empty:
-                st.warning("No arrivals found for the selected date range and filters.")
+            if res and 'from' in res and res['from'] is not None:
+                start_date = res['from'].togregorian()
+            else:
+                query = "select min(Checkin_date) as min_checkin_date from `customerhealth-crm-warehouse.didar_data.deals`"
+                result = exacute_query(query)
+                start_date = result['min_checkin_date'].iloc[0].date()
+
+            if res and 'to' in res and res['to'] is not None:
+                end_date = res['to'].togregorian()
+            else:
+                query = "select max(Checkin_date) as max_checkin_date from `customerhealth-crm-warehouse.didar_data.deals`"
+                result = exacute_query(query)
+                end_date = result['max_checkin_date'].iloc[0].date()
+
+        ### complex filter     
+        with col2:
+            with open("data/tip_names.txt", "r", encoding="utf-8") as file:
+                tip_options = [line.strip() for line in file if line.strip()]           
+        
+                complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
+                complex_options = [
+                                "جمهوری",
+                                "اقدسیه",
+                                "جردن",
+                                "شریعتی (پاسداران)",
+                                "وزرا",
+                                "کشاورز",
+                                "مرزداران",
+                                "میرداماد",
+                                "ونک",
+                                "ولنجک",
+                                "پارک وی",
+                                "بهشتی",
+                                "ولیعصر",
+                                "ویلا",
+                                "کوروش",
+                                "ترنج"
+                            ]
+                if complex_status:
+                    tip_values = tip_options
+                else:
+                    complex_values = st.multiselect(
+                            "Tip انتخاب وضعیت :",
+                            options=complex_options,
+                            default=[],  # empty if user doesn’t pick
+                            key='complex_multiselect_selectbox'
+                        )
+                    cols = st.columns([1, 4])
+
+                    with cols[1]:
+                        tip_options = filter_tips(complex_values, tip_options)
+                        tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
+                        if tip_status:
+                            tip_values = tip_options
+                        else:
+                            tip_values = st.multiselect(
+                                "Tip انتخاب وضعیت :",
+                                options=tip_options,
+                                default=[],  # empty if user doesn’t pick
+                                key='tip_multiselect_selectbox'
+                            )
+                        if tip_values == []:
+                            tip_values = tip_options
+        if st.button("محاسبه و نمایش", key='calculate_button'):
+
+            products_query = """
+                SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`
+            """
+            products = exacute_query(products_query)
+            # Fix: set index to ProductCode, not ProductName
+            products = products.set_index('ProductCode')
+            tips_df = pd.DataFrame({"tip": tip_values})
+            # Map tip to ProductCode using ProductName as key
+            # So we need a mapping from ProductName to ProductCode
+            # But for reverse mapping (ProductCode to ProductName), we need a dict
+            name_to_code = products.reset_index().set_index('ProductName')['ProductCode'].to_dict()
+            code_to_name = products.reset_index().set_index('ProductCode')['ProductName'].to_dict()
+            tips_df['code'] = tips_df['tip'].map(name_to_code)
+
+            # Remove tips with no code mapping
+            tips_df = tips_df.dropna(subset=['code'])
+            codes = tips_df['code'].astype(str).tolist()
+
+            deals_query = f"""
+                SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
+                WHERE Product_code IN ({','.join([f"'{code}'" for code in codes])})
+                AND checkin_date BETWEEN '{start_date}' AND '{end_date}'
+                AND Status = 'Won'
+            """
+            filtered_deals = exacute_query(deals_query)
+            # st.write(filtered_deals)
+
+            if filtered_deals.empty:
+                st.warning("هیچ ورود (چک‌این) در بازه و فیلتر انتخابی یافت نشد.")
                 st.stop()
 
-            # 4) --- COMPUTE THE METRICS FOR SCOREBOARD ---
+            # KPIs
+            total_arrivals = filtered_deals['Customer_id'].nunique()
 
-            # 4.1) Total Arrivals
-            total_arrivals = len(filtered_df)
-
-            # 4.2) Average Weekly Arrivals
+    
             date_range_days = (end_date - start_date).days + 1
-            weeks_in_range = date_range_days / 7.0  # approximate
-            if weeks_in_range > 0:
-                avg_weekly = total_arrivals / weeks_in_range
-            else:
-                avg_weekly = 0
+            weeks_in_range = date_range_days / 7.0 if date_range_days > 0 else 0
+            avg_weekly = int(total_arrivals / weeks_in_range if weeks_in_range > 0 else 0)
 
-            # 4.3) Average Monthly Arrivals (approx by ~30.44 days/month)
-            months_in_range = date_range_days / 30.44
-            if months_in_range > 0:
-                avg_monthly = total_arrivals / months_in_range
-            else:
-                avg_monthly = 0
-
-            # 4.4) Average Length of Stay
-            if 'nights' in filtered_df.columns:
-                avg_stay = filtered_df['nights'].mean()
+            if 'Nights' in filtered_deals.columns:
+                avg_stay = filtered_deals['Nights'].mean()
             else:
                 avg_stay = 0
 
-            # 4.5) Extensions count => "purchase_type" == "Renewal"
-            filtered_df['IsExtension'] = filtered_df[DEALTYPE].eq('Renewal')
-            total_extensions = filtered_df['IsExtension'].sum()
+            filtered_deals['IsExtension'] = filtered_deals['DealType'].eq('Renewal')
+            total_extensions = filtered_deals['IsExtension'].sum()
 
-            # 4.6) New arrivals = non-extensions
-            total_new_arrivals = len(filtered_df[~filtered_df['IsExtension']])
+            total_new_arrivals = len(filtered_deals.loc[~filtered_deals['IsExtension'], 'Customer_id'].unique())
 
-            # 5) --- SCOREBOARD DISPLAY ---
-            colA1, colA2, colA3 = st.columns(3)
-            colA1.metric("Total Arrivals", f"{total_arrivals}")
-            colA2.metric("Avg Weekly Arrivals", f"{avg_weekly:.2f}")
-            colA3.metric("Avg Monthly Arrivals", f"{avg_monthly:.2f}")
+            colA1, colA2, colA3, colA4, colA5  = st.columns(5)
+            with colA1:
+                st.metric("تعداد کل ورودها", f"{total_arrivals}")
+            with colA2:
+                st.metric("میانگین ورود هفتگی", f"{avg_weekly}")
+            with colA3:
+                st.metric("میانگین مدت اقامت (شب)", f"{avg_stay:.2f}")
+            with colA4:
+                st.metric("تعداد تمدیدها", f"{int(total_extensions)}")
+            with colA5:
+                st.metric("تعداد ورود جدید", f"{total_new_arrivals}")
+            
+            st.write('---')
+            st.subheader("تفکیک ورود بر اساس تیپ")
+            # Add ProductName column to filtered_deals by mapping Product_code to ProductName
+            filtered_deals['ProductName'] = filtered_deals['Product_code'].map(code_to_name)
 
-            colB1, colB2, colB3 = st.columns(3)
-            colB1.metric("Average Stay (Nights)", f"{avg_stay:.2f}")
-            colB2.metric("Total Extensions", f"{total_extensions}")
-            colB3.metric("Total New Arrivals", f"{total_new_arrivals}")
-
-            st.write("---")
-
-            # 6) --- TABLE BREAKDOWN BY HOUSE TYPE (product_title) ---
-            st.subheader("Arrival Breakdown by House Type")
-
-            grouped = filtered_df.groupby(PRODUCTTITLE, dropna=False)
-
+            grouped = filtered_deals.groupby('ProductName', dropna=True)
             house_type_data = []
             for house_type, subdf in grouped:
                 arrivals_count = len(subdf)
-                avg_stay_ht = subdf['nights'].mean() if 'nights' in subdf.columns else 0
+                avg_stay_ht = subdf['Nights'].mean() if 'Nights' in subdf.columns else 0
                 ext_count = subdf['IsExtension'].sum()
                 new_count = len(subdf[~subdf['IsExtension']])
 
@@ -192,85 +208,11 @@ def main():
                     'Extensions': ext_count,
                     'New Arrivals': new_count,
                 })
-
             df_house_type = pd.DataFrame(house_type_data)
             st.dataframe(df_house_type)
 
-            csv_house_type = convert_df(df_house_type)
-            excel_house_type = convert_df_to_excel(df_house_type)
-            c1, c2 = st.columns(2)
-            with c1:
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_house_type,
-                    file_name="arrival_by_house_type.csv",
-                    mime="text/csv"
-                )
-            with c2:
-                st.download_button(
-                    label="Download Excel",
-                    data=excel_house_type,
-                    file_name="arrival_by_house_type.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-            # 7) --- MONTHLY COLUMN CHARTS FOR EACH COMPLEX ---
-            # Each chart is a stacked bar of extension vs new arrivals, one bar per month.
-            # Show the sub-segment counts *and* a total label on top of each stacked bar.
-
-            st.write("---")
-            st.subheader("Monthly Arrivals by Complex (Extensions vs. New)")
-
-            # Create a 'Month' column (e.g. '2023-07') for grouping
-            filtered_df['Month'] = filtered_df[CHECKINDATE].dt.to_period('M').astype(str)
-
-            # We'll loop over each chosen complex and show a stacked column chart
-            for cx in selected_complexes:
-                sub_df = filtered_df[filtered_df[COMPLEX] == cx]
-                if sub_df.empty:
-                    continue  # skip if no data for this complex
-
-                # Group by Month + IsExtension to get counts
-                monthly_counts = sub_df.groupby(['Month', 'IsExtension']).size().reset_index(name='ArrivalsCount')
-                # Also get monthly totals (regardless of extension)
-                monthly_totals = sub_df.groupby('Month').size().reset_index(name='TotalCount')
-
-                # Plot a stacked bar chart using Plotly Express
-                fig = px.bar(
-                    monthly_counts,
-                    x='Month',
-                    y='ArrivalsCount',
-                    color='IsExtension',  # True/False
-                    barmode='stack',
-                    title=f"Monthly Arrivals - {cx}",
-                    text='ArrivalsCount'
-                )
-
-                # Position the sub-segment labels inside or outside
-                fig.update_traces(textposition='inside')
-                fig.update_layout(
-                    xaxis_title="Month",
-                    yaxis_title="Number of Arrivals",
-                    # Some spacing so top labels don't get cut off
-                    margin=dict(t=80)
-                )
-
-                # Add an annotation with the total on top of each stacked column
-                for _, row in monthly_totals.iterrows():
-                    fig.add_annotation(
-                        x=row['Month'],
-                        y=row['TotalCount'],
-                        text=str(row['TotalCount']),
-                        showarrow=False,
-                        font=dict(color='black', size=12),
-                        xanchor='center',
-                        yanchor='bottom'
-                    )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning('ابتدا از صفحه اصلی داده را بارگذاری کنید!')
     else:
-        st.warning('ابتدا وارد اکانت خود شوید!')
+        login()
 
 if __name__ == "__main__":
     main()

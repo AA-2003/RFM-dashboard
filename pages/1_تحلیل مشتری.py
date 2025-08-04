@@ -16,10 +16,13 @@ def to_sql_list(values):
 
 
 def filter_tips(selected_complexes, all_tips):
-    return [
-        tip for tip in all_tips
-        if any(complex_name in tip for complex_name in selected_complexes)
-    ]
+    if len(selected_complexes) == 0:
+        return all_tips
+    else:
+        return [
+            tip for tip in all_tips
+            if any(complex_name in tip for complex_name in selected_complexes)
+        ]
 
 
 def customer_analyze():
@@ -102,7 +105,7 @@ def customer_analyze():
             tip_values = tip_options
         else:
             complex_values = st.multiselect(
-                    "Tip انتخاب وضعیت :",
+                    " انتخاب مجتمع مورد علاقه :",
                     options=complex_options,
                     default=[],  # empty if user doesn’t pick
                     key='complex_multiselect_selectbox'
@@ -116,7 +119,7 @@ def customer_analyze():
                     tip_values = tip_options
                 else:
                     tip_values = st.multiselect(
-                        "Tip انتخاب وضعیت :",
+                        " انتخاب تیپ مورد علاقه :",
                         options=tip_options,
                         default=[],  # empty if user doesn’t pick
                         key='tip_multiselect_selectbox'

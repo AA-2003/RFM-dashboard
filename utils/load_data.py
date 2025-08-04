@@ -28,12 +28,16 @@ def exacute_query(query: str) -> pd.DataFrame:
     """
     start = time.time()
     try:
-        logger.info(f"Query: {str(query)}")
+        import re
+        query_preview = re.sub(r'\s+', ' ', str(query))
+        if len(query_preview) > 200:
+            query_preview = f"{query_preview[:100]} ... {query_preview[-100:]}"
+        logger.info(f"Query: {query_preview}")
         client = bigquery.Client.from_service_account_info(credentials)
         df = client.query(query).to_dataframe(create_bqstorage_client=False)
         end = time.time()
-        logger.info(f"Query Executed: {str(query)} \n time:{end-start}s")
-        print(f"Query Executed: {str(query)} \n time:{end-start}s")
+        logger.info(f"Query Executed: {query_preview} \n time:{end-start}s")
+        print(f"Query Executed: {query_preview} \n time:{end-start}s")
         return df
     except Exception as e:
         logger.info(f"Error executing query: {str(e)}")

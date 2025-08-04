@@ -125,7 +125,7 @@ def main():
 
 
         if st.button("اجرا", key='calculate_rfm_button'):            
-            if period_map.get(period1, 0) < period_map.get(period2, 0):
+            if period_map.get(period1, 0) <= period_map.get(period2, 0):
                 st.warning("دوره اول باید قبل از دوره دوم باشد")
             else:
                 if segment2 == 'All':
