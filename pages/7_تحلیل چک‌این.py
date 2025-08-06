@@ -48,8 +48,9 @@ def main():
 
         ### date filter
         with col1:
+            st.subheader("انتخاب بازه زمانی : ")
             config = Config(
-                always_open=True,
+                # always_open=True,
                 dark_mode=True,
                 locale="fa",
                 minimum_date=min_date,
@@ -83,22 +84,9 @@ def main():
         
                 complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
                 complex_options = [
-                                "جمهوری",
-                                "اقدسیه",
-                                "جردن",
-                                "شریعتی (پاسداران)",
-                                "وزرا",
-                                "کشاورز",
-                                "مرزداران",
-                                "میرداماد",
-                                "ونک",
-                                "ولنجک",
-                                "پارک وی",
-                                "بهشتی",
-                                "ولیعصر",
-                                "ویلا",
-                                "کوروش",
-                                "ترنج"
+                            "جمهوری", "اقدسیه", "جردن", "کوروش", "ترنج", 
+                            "شریعتی (پاسداران)", "وزرا", "کشاورز", "مرزداران", "میرداماد",
+                            "ونک", "ولنجک", "پارک وی", "بهشتی", "ولیعصر", "ویلا",
                             ]
                 if complex_status:
                     tip_values = tip_options
@@ -172,9 +160,9 @@ def main():
                 avg_stay = 0
 
             filtered_deals['IsExtension'] = filtered_deals['DealType'].eq('Renewal')
-            total_extensions = filtered_deals['IsExtension'].sum()
+            total_extensions = filtered_deals[filtered_deals['IsExtension'] ==True]['Customer_id'].nunique()
 
-            total_new_arrivals = len(filtered_deals.loc[~filtered_deals['IsExtension'], 'Customer_id'].unique())
+            total_new_arrivals = filtered_deals.loc[~filtered_deals['IsExtension'], 'Customer_id'].nunique()
 
             colA1, colA2, colA3, colA4, colA5  = st.columns(5)
             with colA1:

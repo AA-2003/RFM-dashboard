@@ -49,7 +49,8 @@ def pct_diff(new_val, old_val):
 
 
 @st.cache_data(ttl=3600)
-def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date_str, horizontal=True):
+def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
+                    end_date_str, horizontal=True) -> None:
     # Calculate KPIs    
     total_deals = len(deals)
     successful_deals = deals[deals['Status'] == 'Won']
@@ -64,11 +65,6 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date
             (df_first_deals['first_successful_deal_date'] <= end_date_str)
         ]['Customer_id'].nunique()
         
-        # check
-        # st.write(df_first_deals[
-        #     (df_first_deals['first_successful_deal_date'] >= start_date_str) &
-        #     (df_first_deals['first_successful_deal_date'] <= end_date_str)
-        # ])
 
         returning_customers = deals['Customer_id'].nunique() - new_customers
     else:
@@ -97,29 +93,7 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date
 
     # for outlier we need all of data so i think its better to skip it
 
-    # customers clusters
-    customer_ids = deals['Customer_id'].values.tolist()
-    customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
-    cluster_query = f"""
-        select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
-        where customer_id in ({customer_ids_list})
-        """
-    cluster_df = exacute_query(cluster_query)
-
-    segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
-    segment_counts.columns = ['rfm_segment', 'count']
-
-    cluster_chart = px.bar(
-        segment_counts,
-        x='rfm_segment',
-        y='count',
-        title='توزیع سگمنت مشتریان',
-        labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
-        text='count',
-        color='rfm_segment',
-    )
-    cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
-
+    
     if horizontal:
         st.subheader("شاخص‌های کلیدی عملکرد (KPI)")
         colKPI1, colKPI2, colKPI3, colKPI4 = st.columns(4)
@@ -205,16 +179,36 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str, end_date
             pct_diff(extention_rate, prev_extention_rate)
         )
         st.write('---')
+
+    # customers clusters
+    customer_ids = deals['Customer_id'].values.tolist()
+    customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
+    cluster_query = f"""
+        select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
+        where customer_id in ({customer_ids_list})
+        """
+    cluster_df = exacute_query(cluster_query)
+
+    segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
+    segment_counts.columns = ['rfm_segment', 'count']
+
+    cluster_chart = px.bar(
+        segment_counts,
+        x='rfm_segment',
+        y='count',
+        title='',
+        labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
+        text='count',
+        color='rfm_segment'
+    )
+    cluster_chart.update_traces(textposition='outside')
+    cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
+    st.subheader('توزیع سگمنت مشتریان')
     st.plotly_chart(cluster_chart)
+
     # customers detials
     st.subheader("جزئیات مشتریان")
     st.write(cluster_df)
-
-
-    ### time series
-    # for time series we need all of data so i think its better to skip it
-    return 
-
 
 def main():
     st.set_page_config(page_title="تحلیل کانال فروش", page_icon="📊", layout="wide")
@@ -227,8 +221,9 @@ def main():
 
         ### date filter
         with col1:
+            st.subheader("انتخاب بازه زمانی : ")
             config = Config(
-                always_open=True,
+                # always_open=True,
                 dark_mode=True,
                 locale="fa",
                 maximum_date=jdatetime.date.today() - jdatetime.timedelta(days=3),
@@ -271,10 +266,9 @@ def main():
                     default=[],
                     key='channels_multiselect_box'
                 )
-            if len(selected_channels)==1:
-                channel_transitions = st.checkbox("بررسی انتقال میان کانالها؟", value=True, key='channel_transitions_checkbox')
+            # if len(selected_channels) == 1:
+            #     channel_transitions = st.checkbox("بررسی انتقال میان کانالها؟", value=True, key='channel_transitions_checkbox')
 
-            
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
 
@@ -287,6 +281,9 @@ def main():
                 AND DealCreateDate BETWEEN DATE('{start_date_str}') AND DATE('{end_date_str}')
                 """
             deals = exacute_query(deals_query)
+            if deals is None or deals.empty:
+                st.info('هیچ داده در بازه زمانی انتخاب شده وجود ندارد!!!')
+                return
 
             # Calculate previous period (same length, immediately before current period)
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
@@ -313,10 +310,6 @@ def main():
                     channel_analysis(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
                     )
-                    
-                    if channel_transitions:
-                        pass
-                        # implement in future
 
                 case 2:
                     # compare two channels
@@ -349,16 +342,15 @@ def main():
                     else:
                         all_cluster_df = pd.DataFrame()
 
-
                     for channel in selected_channels:
                         channel_deals = deals[deals['DealChannel'] == channel]
                         channel_successful = channel_deals[channel_deals['Status'] == 'Won']
                         total_deals = len(channel_deals)
                         successful_deals = len(channel_successful)
+                        avg_value = channel_deals[channel_deals['Status'] == 'Won']['DealValue'].mean() / 10 if not channel_deals.empty else 0
                         total_value = channel_deals['DealValue'].sum() / 10 if not channel_deals.empty else 0
-                        # Success rate
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0
-                        # Total nights
+                        renewal_rate = len(channel_deals[channel_deals['DealType']=="Renewal"]) / successful_deals * 100
                         total_nights = channel_deals['Nights'].sum() if 'Nights' in channel_deals.columns and not channel_deals.empty else 0
                         # New customers
                         if (
@@ -366,8 +358,6 @@ def main():
                             and not channel_deals.empty
                             and 'first_successful_deal_date' in df_first_deals.columns
                         ):
-                            # Get customer ids for this channel
-                            customer_ids = channel_deals['Customer_id'].unique().tolist()
                             # Filter first deals for this channel and date range
                             channel_first_deals = df_first_deals[
                                 (df_first_deals['DealChannel'] == channel) &
@@ -378,7 +368,7 @@ def main():
                         else:
                             new_customers = 0
 
-                        # Get customer ids for this channel (for segment)
+                        # Get customer ids for this channel
                         customer_ids = channel_deals['Customer_id'].unique().tolist()
                         if customer_ids and not all_cluster_df.empty and 'rfm_segment' in all_cluster_df.columns:
                             channel_cluster_df = all_cluster_df[all_cluster_df['customer_id'].isin(customer_ids)]
@@ -392,11 +382,13 @@ def main():
 
                         metrics.append({
                             "کانال فروش": channel,
-                            "تعداد معاملات موفق": successful_deals,
-                            "ارزش کل معاملات": total_value,
                             "تعداد کل معاملات": total_deals,
-                            "نرخ موفقیت (%)": f"{success_rate:.2f}",
+                            "تعداد معاملات موفق": successful_deals,
+                            "نرخ موفقیت": f"{success_rate:.2f}",
                             "جمع تعداد شب": int(total_nights),
+                            "ارزش کل معاملات": total_value,
+                            "میانگین ارزش معاملات": avg_value,
+                            "نرخ تمدید": renewal_rate,
                             "تعداد مشتریان جدید": new_customers,
                             "سگمنت غالب": top_segment
                         })
@@ -404,33 +396,28 @@ def main():
                     st.subheader("مقایسه کانال های فروش(جدول شاخص‌ها)")
                     st.dataframe(metrics_df.sort_values(by='تعداد معاملات موفق', ascending=False).reset_index(drop=True), use_container_width=True)
 
-                    # فقط 10 کانال فروش اول را نمایش بده و مبلغ را به میلیون تومان نمایش بده
-
-                    # Sort by تعداد معاملات موفق and take top 10
-                    top10_metrics_df = metrics_df.sort_values("تعداد معاملات موفق", ascending=False).head(10)
-
-                    # Bar chart: تعداد معاملات موفق per channel (top 10)
+                    # Bar chart: تعداد معاملات موفق per channel 
+                    st.subheader("تعداد معاملات موفق به تکفیک کانال")
                     fig1 = px.bar(
-                        top10_metrics_df,
+                        metrics_df,
                         x="کانال فروش",
                         y="تعداد معاملات موفق",
-                        title="تعداد معاملات موفق هر کانال فروش (۱۰ نفر اول)",
+                        title='',
                         text="تعداد معاملات موفق",
                         color="کانال فروش"
                     )
                     fig1.update_layout(xaxis_title="کانال فروش", yaxis_title="تعداد معاملات موفق")
                     st.plotly_chart(fig1, use_container_width=True)
 
-                    # مبلغ را به میلیون تومان تبدیل کن
-                    top10_metrics_df = top10_metrics_df.copy()
-                    top10_metrics_df["ارزش کل معاملات (میلیون تومان)"] = (top10_metrics_df["ارزش کل معاملات"] / 1000).round(2)
+                    metrics_df["ارزش کل معاملات (میلیون تومان)"] = (metrics_df["ارزش کل معاملات"] / 1000).round(2)
 
-                    # Bar chart: ارزش کل معاملات per channel (top 10, میلیون تومان)
+                    # Bar chart: ارزش کل معاملات per channel 
+                    st.subheader("ارزش کل معاملات به تکفیک کانال")
                     fig2 = px.bar(
-                        top10_metrics_df.sort_values(by="ارزش کل معاملات", ascending=False),
+                        metrics_df.sort_values(by="ارزش کل معاملات", ascending=False),
                         x="کانال فروش",
                         y="ارزش کل معاملات (میلیون تومان)",
-                        title="ارزش کل معاملات هر کانال فروش (۱۰ نفر اول)",
+                        title='',
                         text="ارزش کل معاملات (میلیون تومان)",
                         color="کانال فروش"
                     )

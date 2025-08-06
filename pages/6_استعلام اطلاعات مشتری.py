@@ -12,6 +12,7 @@ from utils.load_data import exacute_query
 
 def main():
     """Main function """
+    
     st.set_page_config(page_title="سرچ مشتری", page_icon="📊", layout="wide")
     apply_custom_css()
     st.title("ماژول استعلام و تحلیل مشتری")
@@ -55,11 +56,12 @@ def main():
                 query = f"""
                     SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
                     WHERE {where_clause}
+                    ORDER BY recency
                 """
                 rfm_data = exacute_query(query)
 
                 if rfm_data is None or rfm_data.empty:
-                    st.info('هیچ مشتری با این مشخصات وجود ندارد!!')
+                    st.info('هیچ مشتری با این مشخصات وجود ندارد!!!')
                 else:
                     ids = rfm_data['customer_id'].dropna().astype(int).unique().tolist()
                     if ids:
@@ -80,7 +82,7 @@ def main():
                             st.markdown(f"**شماره همراه:**<br>{customer['phone_number']}", unsafe_allow_html=True)
                         with info2:
                             st.markdown(f"**تازگی (Recency):**<br>{customer['recency']} روز", unsafe_allow_html=True)
-                            st.markdown(f"**تکرار خرید (Frequency):**<br>{customer['frequency']}", unsafe_allow_html=True)
+                            st.markdown(f"**تعداد خرید (Frequency):**<br>{customer['frequency']}", unsafe_allow_html=True)
                             st.markdown(f"**ارزش خرید (Monetary):**<br>{round(customer['monetary'], 2)}", unsafe_allow_html=True)
                         with info3:
                             st.markdown(f"**سگمنت RFM:**<br><span style='color:#2b9348;font-weight:bold'>{customer['rfm_segment']}</span>", unsafe_allow_html=True)

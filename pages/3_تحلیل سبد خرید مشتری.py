@@ -37,6 +37,7 @@ def main():
 
         ### date filter
         with col1:
+            st.subheader("انتخاب بازه زمانی : ")
             config = Config(
                 always_open = True,
                 dark_mode=True,
@@ -221,7 +222,7 @@ def main():
             AND is_staying IN ({to_sql_list(is_staying_values)})
         """
         
-        if st.button("محاسبه و نمایش RFM", key='calculate_rfm_button'):
+        if st.button("محاسبه و نمایش", key='calculate_button'):
             ids = exacute_query(query)
             customer_ids = ids['customer_id'].dropna().unique().tolist()
             id_list_sql = ', '.join(str(int(i)) for i in customer_ids)
@@ -282,7 +283,8 @@ def main():
                     {region_case},
                     {quality_case},
                     COUNT(*) AS Frequency,
-                    SUM(d.DealValue) AS DealValue
+                    SUM(d.DealValue) AS DealValue,
+                    SUM(Nights) as total_nights
                 FROM `customerhealth-crm-warehouse.didar_data.deals` d
                 JOIN `customerhealth-crm-warehouse.didar_data.Products` p
                     ON d.Product_code = p.ProductCode
@@ -295,12 +297,13 @@ def main():
 
             agg_df = exacute_query(agg_query)
 
-            if agg_df.empty:
-                st.warning("هیچ معامله‌ای با این شرایط پیدا نشد")
+            if agg_df is None or agg_df.empty:
+                st.warning("هیچ معامله‌ای با فیلترهای اعمال شده پیدا نشد!!!")
             else:
                 # Format numbers with thousands separator
                 agg_df['Frequency_fmt'] = agg_df['Frequency'].apply(lambda x: f"{x:,}")
                 agg_df['DealValue_fmt'] = agg_df['DealValue'].apply(lambda x: f"{round(x/10_000_000):,} میلیون")
+                agg_df['total_nights_fmt'] = agg_df['total_nights'].apply(lambda x: f"{x:,}")
 
                 # Plot Frequency Distribution by Complex
                 st.subheader("توزیع فراوانی معاملات")
@@ -314,7 +317,7 @@ def main():
                     plot_df,
                     x='complex',
                     y='Frequency',
-                    title='توزیع فراوانی',
+                    title='',
                     labels={'complex': 'مجتمع', 'Frequency': 'تعداد خرید'},
                     text='Frequency'
                 )
@@ -324,19 +327,39 @@ def main():
                 # Plot Monetary Distribution by Complex
                 st.subheader("توزیع ارزش مالی معاملات")
                 plot_monetary_df = agg_df.groupby('complex', as_index=False).agg({'DealValue': 'sum'})
-                plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue'].apply(lambda x: f"{math.ceil(x/1_000_000_000):,} میلیارد ریال")
+                plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
+                plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
                 fig_monetary = px.bar(
                     plot_monetary_df,
                     x='complex',
                     y='DealValue',
-                    title='توزیع مالی',
+                    title='',
                     labels={'complex': 'مجتمع', 'DealValue': 'ارزش کل معاملات'},
                     text='DealValue_fmt'
                 )
-                fig_monetary.update_traces(textposition='outside')
+                fig_monetary.update_traces(textposition='outside',
+                                           texttemplate='%{customdata}',
+                                           customdata=plot_monetary_df[['DealValue_fmt']])
                 max_val = plot_monetary_df['DealValue'].max()
                 fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
                 st.plotly_chart(fig_monetary)
+
+                # Plot Total Nights Distribution by Complex
+                st.subheader("توزیع تعداد شب به تفکیک مجتمع")
+                plot_nights_df = agg_df.groupby('complex', as_index=False).agg({'total_nights': 'sum'})
+                plot_nights_df['total_nights_fmt'] = plot_nights_df['total_nights'].apply(lambda x: f"{x:,}")
+                fig_nights = px.bar(
+                    plot_nights_df,
+                    x='complex',
+                    y='total_nights',
+                    title='',
+                    labels={'complex': 'مجتمع', 'total_nights': 'تعداد شب'},
+                    text='total_nights_fmt'
+                )
+                fig_nights.update_traces(textposition='outside')
+                max_nights = plot_nights_df['total_nights'].max()
+                fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
+                st.plotly_chart(fig_nights)
 
                 # Plot Monetary Distribution by Quality Rank
                 st.subheader("توزیع ارزش مالی به تفکیک نوع محصول")
@@ -348,7 +371,7 @@ def main():
                     quality_df,
                     x='quality_rank_label',
                     y='DealValue',
-                    title='ارزش فروش به تفکیک کیفیت',
+                    title='',
                     labels={'quality_rank_label': 'کیفیت', 'DealValue': 'ارزش کل معاملات'},
                     text='DealValue_fmt'
                 )
@@ -360,7 +383,7 @@ def main():
                 cols = st.columns(2)
                 with cols[0]:
                     # Plot Sale by Region (Monetary) as Pie Chart
-                    st.subheader("ارزش فروش در هر منطقه")
+                    st.subheader("میزان فروش در هر منطقه")
                     region_agg = agg_df.groupby('region', as_index=False).agg({'DealValue': 'sum'})
                     region_agg = region_agg[region_agg['region'] != 'نامشخص']
                     region_agg['DealValue_billion'] = region_agg['DealValue'] / 10_000_000_000
@@ -370,13 +393,13 @@ def main():
                         region_agg,
                         names='region',
                         values='DealValue',
-                        title='سهم ارزش فروش به تفکیک منطقه',
+                        title='',
                         hole=0.3,
                         labels={'region': 'منطقه', 'DealValue': 'ارزش کل فروش'},
                     )
                     fig_region_pie.update_traces(
                         textinfo='label+text',
-                        texttemplate='%{label}\n%{customdata}',
+                        texttemplate='%{customdata}',
                         customdata=region_agg[['DealValue_billion_fmt']],
                         hovertemplate='<b>%{label}</b><br>ارزش فروش: %{value:,} ریال<br>ارزش فروش: %{customdata[0]}'
                     )
@@ -391,12 +414,12 @@ def main():
                         region_freq,
                         names='region',
                         values='Frequency',
-                        title='سهم تعداد معاملات به تفکیک منطقه',
+                        title='',
                         hole=0.3,
                         labels={'region': 'منطقه', 'Frequency': 'تعداد معاملات'},
                     )
                     fig_region_freq_pie.update_traces(
-                        textinfo='percent+label',
+                        textinfo='percent',
                         hovertemplate='<b>%{label}</b><br>تعداد معاملات: %{value:,}'
                     )
                     st.plotly_chart(fig_region_freq_pie)

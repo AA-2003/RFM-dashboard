@@ -211,11 +211,11 @@ def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_st
     st.subheader("جزئیات مشتریان")
     st.write(cluster_df)
 
-
     ### time series
     # for time series we need all of data so i think its better to skip it
-    return 
 
+
+    return 
 
 def main():
     st.set_page_config(page_title="تحلیل فروشنده", page_icon="📊", layout="wide")
@@ -228,8 +228,9 @@ def main():
 
         ### date filter
         with col1:
+            st.subheader("انتخاب بازه زمانی : ")
             config = Config(
-                always_open=True,
+                # always_open=True,
                 dark_mode=True,
                 locale="fa",
                 maximum_date=jdatetime.date.today() - jdatetime.timedelta(days=3),
@@ -267,7 +268,7 @@ def main():
                 selected_sellers = sellers_options
             else:
                 selected_sellers = st.multiselect(
-                    "انتخاب  فروشنده: ",
+                    "انتخاب  فروشنده:",
                     options=sellers_options,
                     default=[],
                     key='sellers_multiselect_box'
@@ -285,6 +286,9 @@ def main():
                 AND DealCreateDate BETWEEN DATE('{start_date_str}') AND DATE('{end_date_str}')
                 """
             deals = exacute_query(deals_query)
+            if deals is None or deals.empty:
+                st.info('هیچ داده‌ای برای بازه زمانی ثبت شده وجود ندارد!!!')
+                return
 
             # Calculate previous period (same length, immediately before current period)
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
@@ -310,11 +314,7 @@ def main():
                     # analyse on seller
                     seller_analys(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
-                    )
-                    #################################################################
-                    # محاسبه اش اشتباه هست. اطلاع بدم
-                    # مثلا شخص با کد 8243 کلا یه معامله موفق داره ولی 3 تا براش ثبت شده 
-                    #################################################################
+                                )
 
                 case 2:
                     # compare two sellers
@@ -323,18 +323,19 @@ def main():
                     with col1:                        
                         st.write(seller1)
                         seller_analys(
-                            deals[deals['DealExpert']==seller1], prev_deals[prev_deals['DealExpert']==seller1], df_first_deals, start_date_str, end_date_str, False
+                            deals[deals['DealExpert']==seller1], prev_deals[prev_deals['DealExpert']==seller1],
+                            df_first_deals, start_date_str, end_date_str, horizontal=False
                         )
                     with col2:
                         st.write(seller2)
                         seller_analys(
-                            deals[deals['DealExpert']==seller2], prev_deals[prev_deals['DealExpert']==seller2], df_first_deals, start_date_str, end_date_str, False
+                            deals[deals['DealExpert']==seller2], prev_deals[prev_deals['DealExpert']==seller2],
+                            df_first_deals, start_date_str, end_date_str, horizontal=False
                         )
 
                 case _:
                     # compare more than two sellers
                     metrics = []
-
                     # Collect all unique customer_ids for all selected sellers
                     all_customer_ids = deals[deals['DealExpert'].isin(selected_sellers)]['Customer_id'].unique().tolist()
                     if all_customer_ids:
@@ -346,17 +347,16 @@ def main():
                         all_cluster_df = exacute_query(cluster_query)
                     else:
                         all_cluster_df = pd.DataFrame()
-
-
+                    
                     for seller in selected_sellers:
                         seller_deals = deals[deals['DealExpert'] == seller]
                         seller_successful = seller_deals[seller_deals['Status'] == 'Won']
                         total_deals = len(seller_deals)
                         successful_deals = len(seller_successful)
-                        total_value = seller_deals['DealValue'].sum() / 10 if not seller_deals.empty else 0
-                        # Success rate
+                        renewal_rate = len(seller_deals[seller_deals['DealType']=="Renewal"]) / successful_deals * 100
+                        total_value = seller_deals[seller_deals['Status'] == 'Won']['DealValue'].sum() / 10 if not seller_deals.empty else 0
+                        avg_value = seller_deals[seller_deals['Status'] == 'Won']['DealValue'].mean() / 10 if not seller_deals.empty else 0
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0
-                        # Total nights
                         total_nights = seller_deals['Nights'].sum() if 'Nights' in seller_deals.columns and not seller_deals.empty else 0
                         # New customers
                         if (
@@ -390,50 +390,64 @@ def main():
 
                         metrics.append({
                             "فروشنده": seller,
-                            "تعداد معاملات موفق": successful_deals,
-                            "ارزش کل معاملات": total_value,
                             "تعداد کل معاملات": total_deals,
-                            "نرخ موفقیت (%)": f"{success_rate:.2f}",
+                            "تعداد معاملات موفق": successful_deals,
+                            "نرخ موفقیت": f"{success_rate:.2f}",
                             "جمع تعداد شب": int(total_nights),
+                            "ارزش کل معاملات": total_value,
+                            "میانگین ارزش معاملات": avg_value,
+                            "نرخ تمدید": renewal_rate,
                             "تعداد مشتریان جدید": new_customers,
                             "سگمنت غالب": top_segment
                         })
                     metrics_df = pd.DataFrame(metrics)
                     st.subheader("مقایسه فروشندگان (جدول شاخص‌ها)")
-                    st.dataframe(metrics_df.sort_values(by='تعداد معاملات موفق', ascending=False).reset_index(drop=True), use_container_width=True)
+                    st.dataframe(metrics_df.sort_values(by='تعداد معاملات موفق', ascending=False
+                                        ).reset_index(drop=True), use_container_width=True)
 
-                    # فقط 10 فروشنده اول را نمایش بده و مبلغ را به میلیون تومان نمایش بده
+                    # Sort by تعداد معاملات موفق 
+                    if len(metrics_df) > 10:
+                        titles = [
+                            "تعداد معاملات موفق هر فروشنده(10 نفر برتر)",
+                            "میزان فروش هر فروشنده(10 نفر برتر)"
+                        ]
+                    else:
+                        titles = [
+                            "تعداد معاملات موفق هر فروشنده",
+                            "میزان فروش هر فروشنده"
+                        ]
 
-                    # Sort by تعداد معاملات موفق and take top 10
                     top10_metrics_df = metrics_df.sort_values("تعداد معاملات موفق", ascending=False).head(10)
 
-                    # Bar chart: تعداد معاملات موفق per seller (top 10)
+                    # Bar chart: تعداد معاملات موفق per seller 
+                    st.subheader(titles[0])
                     fig1 = px.bar(
                         top10_metrics_df,
                         x="فروشنده",
                         y="تعداد معاملات موفق",
-                        title="تعداد معاملات موفق هر فروشنده (۱۰ نفر اول)",
+                        title='',
                         text="تعداد معاملات موفق",
                         color="فروشنده"
                     )
                     fig1.update_layout(xaxis_title="فروشنده", yaxis_title="تعداد معاملات موفق")
                     st.plotly_chart(fig1, use_container_width=True)
 
-                    # مبلغ را به میلیون تومان تبدیل کن
                     top10_metrics_df = top10_metrics_df.copy()
                     top10_metrics_df["ارزش کل معاملات (میلیون تومان)"] = (top10_metrics_df["ارزش کل معاملات"] / 1000).round(2)
 
-                    # Bar chart: ارزش کل معاملات per seller (top 10, میلیون تومان)
+                    # Bar chart: ارزش کل معاملات per seller (میلیون تومان)
+                    st.subheader(titles[1])
                     fig2 = px.bar(
                         top10_metrics_df.sort_values(by="ارزش کل معاملات", ascending=False),
                         x="فروشنده",
                         y="ارزش کل معاملات (میلیون تومان)",
-                        title="ارزش کل معاملات هر فروشنده (۱۰ نفر اول)",
+                        title='',
                         text="ارزش کل معاملات (میلیون تومان)",
                         color="فروشنده"
                     )
                     fig2.update_layout(xaxis_title="فروشنده", yaxis_title="ارزش کل معاملات (میلیون تومان)")
                     st.plotly_chart(fig2, use_container_width=True)
+
     else:
         login()
 

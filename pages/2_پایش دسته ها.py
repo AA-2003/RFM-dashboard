@@ -56,44 +56,48 @@ def main():
         else:
             segment_normalized = st.session_state['rfms_segment_normalized'].copy()
 
-        # Select box for user to choose between real number or normalized
-        y_axis_option = st.selectbox(
-            "نمایش بر اساس:",
-            options=["تعداد", "نرمال شده"],
-            index=1
-        )
 
-        if y_axis_option == "تعداد":
-            y_col = 'count'
-            y_title = 'تعداد مشتریان'
+        if segment_normalized is None or segment_normalized.empty:
+            st.info("مشکلی در بارگذاری داده ها پیش امده است!!")
         else:
-            y_col = 'percentage'
-            y_title = 'درصد مشتریان'
+            # Select box for user to choose between real number or normalized
+            y_axis_option = st.selectbox(
+                "نمایش بر اساس:",
+                options=["تعداد", "نرمال شده"],
+                index=1
+            )
 
-        fig = px.line(
-            segment_normalized,
-            x='quarter',
-            y=y_col,
-            color='rfm_segment',
-            markers=True,
-            color_discrete_sequence=px.colors.qualitative.Set3 
-        )
-        fig.update_layout(
-            title={
-                'text': 'تغییرات  در طول زمان',
-                'x': 1,  
-                'xanchor': 'right',  
-                'yanchor': 'top'
-            },
-            xaxis_title='دوره',
-            yaxis_title=y_title,
-            legend_title='RFM Segment'
-        )
-        st.plotly_chart(fig)
+            if y_axis_option == "تعداد":
+                y_col = 'count'
+                y_title = 'تعداد مشتریان'
+            else:
+                y_col = 'percentage'
+                y_title = 'درصد مشتریان'
+
+            fig = px.line(
+                segment_normalized,
+                x='quarter',
+                y=y_col,
+                color='rfm_segment',
+                markers=True,
+                color_discrete_sequence=px.colors.qualitative.Set3 
+            )
+            fig.update_layout(
+                title={
+                    'text': 'تغییرات  در طول زمان',
+                    'x': 1,  
+                    'xanchor': 'right',  
+                    'yanchor': 'top'
+                },
+                xaxis_title='دوره',
+                yaxis_title=y_title,
+                legend_title='RFM Segment'
+            )
+            st.plotly_chart(fig)
         
         st.write('---')
+        st.subheader('بررسی تغییر یک سگمنت در طول زمان')
         # Create two filters for period and segment selection for comparison
-
         months = ['این ماه', 'سه ماه پیش', 'شش ماه پیش', 'نه ماه پیش', 'دوازده ماه پیش']
         segments = [
             'At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
@@ -112,8 +116,6 @@ def main():
             period2 = st.selectbox("دوره دوم را انتخاب کنید:", months, key="period2")
             segment2 = st.selectbox("سگمنت دوم را انتخاب کنید:", ['All'] + segments, key="segment2")
 
-
-
         # Map period to rfms index
         period_map = {
             'این ماه': 'customerhealth-crm-warehouse.didar_data.RFM_segments',
@@ -124,7 +126,8 @@ def main():
         }
 
 
-        if st.button("اجرا", key='calculate_rfm_button'):            
+        if st.button("اجرا", key='calculate_button'):            
+            print(period_map.get(period1, 0), period_map.get(period2, 0))
             if period_map.get(period1, 0) <= period_map.get(period2, 0):
                 st.warning("دوره اول باید قبل از دوره دوم باشد")
             else:
@@ -137,8 +140,11 @@ def main():
                 ids_query = f"""
                             SELECT customer_id, rfm_segment FROM `{rfm_id_1}`
                             WHERE rfm_segment = '{segment1}'
-                """
+                            """
                 ids = exacute_query(ids_query)
+                if ids is None or ids.empty:
+                    st.info("مشکلی در بارگذاری داده ها پیش آمده است!!!")
+                    return
 
                 # Distribution of those customers in period 2 by their segment
                 id_list_sql = ', '.join(str(i) for i in ids['customer_id'].values.tolist())
@@ -147,7 +153,7 @@ def main():
                             SELECT * FROM `{rfm_id_2}`
                             WHERE rfm_segment = '{segment2}'
                             AND customer_id IN ({id_list_sql})
-"""
+                            """
                 else:
                     segments2 = ', '.join(f"'{i}'" for i in segment2)
                     df2_query = f"""
@@ -156,6 +162,10 @@ def main():
                             AND customer_id IN ({id_list_sql})
                     """
                 df2 = exacute_query(df2_query)
+
+                if df2 is None or df2.empty:
+                    st.info("مشکلی در بارگذاری داده ها پیش آمده است!!!")
+                    return
                 seg2_dist = df2['rfm_segment'].value_counts().reset_index()
 
                 seg2_dist.columns = ['rfm_segment', 'count']
@@ -174,7 +184,7 @@ def main():
                 st.plotly_chart(fig2, use_container_width=True)
                 data = pd.merge(df2, ids[ids['rfm_segment'] == segment1][['customer_id', 'rfm_segment']], on="customer_id")
 
-                # تغییر نام ستون‌ها به فارسی و تغییر نام rfm_segment_x و rfm_segment_y
+                # change columns names
                 data = data.rename(columns={
                     'customer_id': 'شناسه مشتری',
                     'first_name': 'نام',
@@ -193,6 +203,30 @@ def main():
                     'rfm_segment_y': 'سگمنت دوره اول'
                 })
                 st.write(data)
+
+        st.write('---')
+
+        merged_df = exacute_query("""
+            SELECT 
+                rfm.customer_id, 
+                rfm.rfm_segment, 
+                chs.customer_nps, 
+                chs.customer_amneties_score, 
+                chs.customer_staff_score
+            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments` rfm
+            INNER JOIN `customerhealth-crm-warehouse.CHS.CHS_components` chs
+                ON rfm.customer_id = chs.Customer_ID
+        """)
+
+        agg_scores = merged_df.groupby('rfm_segment').agg(
+            تعداد_نظرسنجی=('customer_nps', 'count'),
+            میانگین_NPS=('customer_nps', 'mean'),
+            میانگین_امکانات=('customer_amneties_score', 'mean'),
+            میانگین_پرسنل=('customer_staff_score', 'mean')
+        ).reset_index().rename(columns={'rfm_segment': 'سگمنت'})
+
+        st.subheader("میانگین امتیازهای هپی کال هر سگمنت")
+        st.dataframe(agg_scores)
     else:
         login()
 if __name__ == "__main__":

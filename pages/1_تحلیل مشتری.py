@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import sys
 import plotly.express as px
+import pandas as pd
 
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
@@ -78,29 +79,16 @@ def customer_analyze():
             segment_values = semention_options
     
     with col2:
-        # tip filter  
+        # tip filter favorite
         with open("data/tip_names.txt", "r", encoding="utf-8") as file:
             tip_options = [line.strip() for line in file if line.strip()]           
     
-        complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
+        complex_status = st.checkbox("(مورد علاقه)انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
         complex_options = [
-                        "جمهوری",
-                        "اقدسیه",
-                        "جردن",
-                        "شریعتی (پاسداران)",
-                        "وزرا",
-                        "کشاورز",
-                        "مرزداران",
-                        "میرداماد",
-                        "ونک",
-                        "ولنجک",
-                        "پارک وی",
-                        "بهشتی",
-                        "ولیعصر",
-                        "ویلا",
-                        "کوروش",
-                        "ترنج"
-                    ]
+                            "جمهوری", "اقدسیه", "جردن", "کوروش", "ترنج", 
+                            "شریعتی (پاسداران)", "وزرا", "کشاورز", "مرزداران", "میرداماد",
+                            "ونک", "ولنجک", "پارک وی", "بهشتی", "ولیعصر", "ویلا",
+                        ]
         if complex_status:
             tip_values = tip_options
         else:
@@ -119,7 +107,7 @@ def customer_analyze():
                     tip_values = tip_options
                 else:
                     tip_values = st.multiselect(
-                        " انتخاب تیپ مورد علاقه :",
+                        "انتخاب تیپ مورد علاقه :",
                         options=tip_options,
                         default=[],  # empty if user doesn’t pick
                         key='tip_multiselect_selectbox'
@@ -163,6 +151,9 @@ def customer_analyze():
         elif len(is_staying_values) != 2:
             is_staying_values = list([is_staying_values])
 
+
+        # add happy call filter
+
     query = f"""
     SELECT *
     FROM (
@@ -196,26 +187,34 @@ def customer_analyze():
         AND is_staying IN ({to_sql_list(is_staying_values)})
         AND favorite_product IS NOT NULL
     """
-    
+
     if st.button("محاسبه و نمایش RFM", key='calculate_rfm_button'):
         data = exacute_query(query)
-        st.write(data)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                label="Download data as CSV",
-                data=convert_df(data),
-                file_name='rfm_segmentation_with_churn.csv',
-                mime='text/csv',
-            )
+        CHS_data = exacute_query(f"""
+                        select * from `customerhealth-crm-warehouse.CHS.CHS_components`
+                        where Customer_ID in ({', '.join(str(i) for i in data['customer_id'].unique())})
+                        """)
+        if data is None or data.empty:
+            st.info('هیچ داده ای با فیلترهای اعمال شده وجود ندارد!!!')
+        else:
+            st.write(pd.merge(data, CHS_data[['Customer_ID', 'customer_nps']], left_on='customer_id', right_on='Customer_ID', how='left').drop(columns='Customer_ID'))
+            # st.write(data)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="Download data as CSV",
+                    data=convert_df(data),
+                    file_name='rfm_segmentation_with_churn.csv',
+                    mime='text/csv',
+                )
 
-        with col2:
-            st.download_button(
-                label="Download data as Excel",
-                data=convert_df_to_excel(data),
-                file_name='rfm_segmentation_with_churn.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            )
+            with col2:
+                st.download_button(
+                    label="Download data as Excel",
+                    data=convert_df_to_excel(data),
+                    file_name='rfm_segmentation_with_churn.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
 
 
 def main():
