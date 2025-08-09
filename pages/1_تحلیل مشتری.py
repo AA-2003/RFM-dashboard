@@ -65,55 +65,86 @@ def customer_analyze():
                             'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
                             'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
                             '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers']
-        segment_status = st.checkbox("انتخاب تمام بخش‌ها", value=True, key='segments_checkbox')
+        segment_status = st.checkbox("انتخاب تمام سگمنت‌ها", value=True, key='segments_checkbox')
         if segment_status:
             segment_values = semention_options
         else:
             segment_values = st.multiselect(
-                "انتخاب بخش:",
+                "انتخاب سگمنت:",
                 options=semention_options,
                 default=[semention_options[0]],  # Default to first option
                 key='segment_multiselect_selectbox'
             )
         if segment_values == []:
             segment_values = semention_options
-    
+
+        # receny
+        
     with col2:
-        # tip filter favorite
+        # favorite tip filter 
         with open("data/tip_names.txt", "r", encoding="utf-8") as file:
             tip_options = [line.strip() for line in file if line.strip()]           
     
-        complex_status = st.checkbox("(مورد علاقه)انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
         complex_options = [
                             "جمهوری", "اقدسیه", "جردن", "کوروش", "ترنج", 
                             "شریعتی (پاسداران)", "وزرا", "کشاورز", "مرزداران", "میرداماد",
                             "ونک", "ولنجک", "پارک وی", "بهشتی", "ولیعصر", "ویلا",
                         ]
-        if complex_status:
-            tip_values = tip_options
+        favorite_complex_status = st.checkbox("انتخاب تمام مجتمع ها(مورد علاقه) ", value=True, key='favorite_complex_checkbox')
+        if favorite_complex_status:
+            favorite_tip_values = tip_options
         else:
-            complex_values = st.multiselect(
+            favorite_complex_values = st.multiselect(
                     " انتخاب مجتمع مورد علاقه :",
                     options=complex_options,
                     default=[],  # empty if user doesn’t pick
-                    key='complex_multiselect_selectbox'
+                    key='favorite_complex_multiselect_selectbox'
                 )
             cols = st.columns([1, 4])
 
             with cols[1]:
-                tip_options = filter_tips(complex_values, tip_options)
-                tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
-                if tip_status:
-                    tip_values = tip_options
+                favorite_tip_options = filter_tips(favorite_complex_values, tip_options)
+                favorite_tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='favorite_tips_checkbox')
+                if favorite_tip_status:
+                    favorite_tip_values = favorite_tip_options
                 else:
-                    tip_values = st.multiselect(
+                    favorite_tip_values = st.multiselect(
                         "انتخاب تیپ مورد علاقه :",
                         options=tip_options,
                         default=[],  # empty if user doesn’t pick
-                        key='tip_multiselect_selectbox'
+                        key='favorite_tip_multiselect_selectbox'
                     )
-                if tip_values == []:
-                    tip_values = tip_options
+                if favorite_tip_values == []:
+                    favorite_tip_values = tip_options
+
+        # Resident complex        
+        resident_complex_status = st.checkbox("انتخاب تمام مجتمع ها(مقیم) ", value=True, key='resident_complex_checkbox')
+        if resident_complex_status:
+            resident_tip_values = tip_options
+        else:
+            resident_complex_values = st.multiselect(
+                    " انتخاب مجتمع مورد علاقه :",
+                    options=complex_options,
+                    default=[],  # empty if user doesn’t pick
+                    key='resident_complex_multiselect_selectbox'
+                )
+            cols = st.columns([1, 4])
+
+            with cols[1]:
+                resident_tip_options = filter_tips(resident_complex_values, tip_options)
+                resident_tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='resident_tips_checkbox')
+                if resident_tip_status:
+                    resident_tip_values = resident_tip_options
+                else:
+                    resident_tip_values = st.multiselect(
+                        "انتخاب تیپ مورد علاقه :",
+                        options=tip_options,
+                        default=[],  # empty if user doesn’t pick
+                        key='favorite_tip_multiselect_selectbox'
+                    )
+                if resident_tip_values == []:
+                    resident_tip_values = tip_options
+
 
         # monthly filter
         montly_status = st.checkbox("ماهانه و غیرماهانه", value=True, key='monthly_checkbox')
@@ -179,13 +210,20 @@ def customer_analyze():
             END AS vip_status
         FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
         WHERE rfm_segment IN ({to_sql_list(segment_values)})
-        AND (favorite_product IN ({to_sql_list(tip_values)}) OR favorite_product IS NULL )
+        AND (favorite_product IN ({to_sql_list(favorite_tip_values)}))
     ) t
     WHERE vip_status IN ({to_sql_list(vip_values)})
         AND blacklist_status IN ({to_sql_list(black_list_values)})
         AND monthly_status IN ({to_sql_list(montly_values)})
         AND is_staying IN ({to_sql_list(is_staying_values)})
         AND favorite_product IS NOT NULL
+        AND phone_number IS NOT NULL
+        AND customer_id IN (
+            SELECT d.Customer_id FROM `customerhealth-crm-warehouse.didar_data.deals` d
+            JOIN `customerhealth-crm-warehouse.didar_data.Products` p
+                ON d.Product_code = p.ProductCode
+            WHERE  p.ProductName IN ({to_sql_list(resident_tip_values)})
+        )
     """
 
     if st.button("محاسبه و نمایش RFM", key='calculate_rfm_button'):
@@ -239,21 +277,24 @@ def main():
                     from `customerhealth-crm-warehouse.didar_data.RFM_segments`
                     WHERE last_name IS NOT NULL
                 """)
-                fig3d = px.scatter_3d(
-                    rfm,
-                    x='total_nights', y='frequency', z='monetary',
-                    color='rfm_segment', color_discrete_map=COLOR_MAP,
-                    hover_data=['customer_id','first_name','last_name']
-                )
-                fig3d.update_layout(
-                    scene=dict(
-                        xaxis_title='total_nights',
-                        yaxis_title='Frequency',
-                        zaxis_title='Monetary'
-                    ),
-                    legend_title='RFM Segments'
-                )
-                st.plotly_chart(fig3d)
+                if rfm is None or rfm.empty:
+                    st.info("مشکلی در بارگذاری داده های پیش امده است!!!")
+                else:
+                    fig3d = px.scatter_3d(
+                        rfm,
+                        x='total_nights', y='frequency', z='monetary',
+                        color='rfm_segment', color_discrete_map=COLOR_MAP,
+                        hover_data=['customer_id','first_name','last_name']
+                    )
+                    fig3d.update_layout(
+                        scene=dict(
+                            xaxis_title='total_nights',
+                            yaxis_title='Frequency',
+                            zaxis_title='Monetary'
+                        ),
+                        legend_title='RFM Segments'
+                    )
+                    st.plotly_chart(fig3d)
             
             with tabs[2]:
                 st.text('در حال اماده سازی ...')

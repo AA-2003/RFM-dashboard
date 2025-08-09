@@ -1,3 +1,4 @@
 .streamlit
 __pycache__
 logs
+test.ipynb

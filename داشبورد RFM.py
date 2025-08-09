@@ -30,12 +30,8 @@ def main() -> None:
         tabs = st.columns([1,1])
         
         queries = [
-            """SELECT COUNT(customer_id) as count FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
-            WHERE favorite_product IS NOT NULL
-            AND favorite_product NOT LIKE '%صبحانه%' 
-            AND favorite_product NOT LIKE '%خودرو%'
-            """,
-            "SELECT AVG(monetary) as avg FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`",
+            "SELECT AVG(frequency) as avg_frequency FROM `customerhealth-crm-warehouse.didar_data.RFM_segments` WHERE phone_number IS NOT NULL",
+            "SELECT AVG(monetary) as avg_monetary FROM `customerhealth-crm-warehouse.didar_data.RFM_segments` WHERE phone_number IS NOT NULL",
             """
             SELECT 
                 c.complex,
@@ -88,15 +84,15 @@ def main() -> None:
             SELECT customer_id, first_name, last_name, frequency, monetary, total_nights
             FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
             WHERE frequency = (
-            SELECT MAX(frequency)
-            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                SELECT MAX(frequency)
+                FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
             )""",
             """
             SELECT customer_id, first_name, last_name, total_nights, monetary, frequency
             FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
             WHERE total_nights = (
-            SELECT MAX(total_nights)
-            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                SELECT MAX(total_nights)
+                FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
             )""",
             """
             SELECT customer_id, first_name, last_name, frequency, monetary, total_nights, (monetary / frequency) as avg_deal
@@ -104,19 +100,9 @@ def main() -> None:
             WHERE (monetary / frequency) = (
                 SELECT MAX(monetary / frequency)
                 FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
-                WHERE frequency > 0
+                WHERE frequency > 2
+                and phone_number IS NOT NULL
             )
-            """,
-            """
-            SELECT  rfm_segment as segment,
-                    COUNT(customer_id) as count,
-                    AVG(monetary) as Average_payment,
-                    SUM(total_nights)/SUM(frequency)  as Average_number_of_nights,
-                    AVG(frequency)  as Average_number_of_reservations
-                                 
-            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
-            WHERE favorite_product IS NOT NULL
-            GROUP BY rfm_segment;     
             """,
             """
             SELECT 
@@ -133,26 +119,37 @@ def main() -> None:
             ORDER BY distcount DESC
             LIMIT 1
             """,
+            """
+            SELECT  rfm_segment as segment,
+                    COUNT(customer_id) as count,
+                    AVG(monetary) as Average_payment,
+                    SUM(total_nights)/SUM(frequency)  as Average_number_of_nights,
+                    AVG(frequency)  as Average_number_of_reservations
+                                 
+            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+            WHERE favorite_product IS NOT NULL
+            GROUP BY rfm_segment;     
+            """,
         ]
 
         results = exacute_queries(queries)
         if any(r is None or (hasattr(r, "empty") and r.empty) for r in results):
             st.info("خطایی در بارگزاری داده ها پیش امده است!")
         else:
-            number_of_customers = results[0]
-            mean_sales = results[1]['avg'].round(-5).values[0]
+            mean_frequency = results[0]['avg_frequency'].round(0).values[0]
+            mean_sales = results[1]['avg_monetary'].round(-5).values[0]
             most_selling_complex = results[2]
             most_selling_tip = results[3]   
             most_frequent_customer = results[4]
             most_nights_customer = results[5]
             most_ave_deal_customer = results[6]
-            most_distcount_customer = results[8]
+            most_distcount_customer = results[7]
 
             # Segments count
-            segments = results[7]
+            segments = results[8]
 
             with tabs[0]:
-                st.metric("تعداد مشتریان", number_of_customers['count'].values[0])
+                st.metric("میانگین تعداد خرید مشتریان", int(mean_frequency))
                 st.metric("میانگین فروش به ازای هر مشتری", format_currency(mean_sales))
                 st.metric("پرفروش ترین مجتمع", most_selling_complex['complex'].values[0])
                 st.metric("پرفروش ترین تیپ", most_selling_tip['tip'].values[0])
