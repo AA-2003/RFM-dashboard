@@ -13,6 +13,7 @@ sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.auth import login
 from utils.load_data import exacute_query
+from utils.funcs import convert_df, convert_df_to_excel
 
 def get_first_successful_deal_date(selected_channels):
     """
@@ -47,8 +48,7 @@ def pct_diff(new_val, old_val):
         return None
     return f"{((new_val - old_val)/abs(old_val)*100):.2f}%"
 
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600, show_spinner=False)
 def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
                     end_date_str, horizontal=True) -> None:
     # Calculate KPIs    
@@ -64,8 +64,6 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
             (df_first_deals['first_successful_deal_date'] >= start_date_str) &
             (df_first_deals['first_successful_deal_date'] <= end_date_str)
         ]['Customer_id'].nunique()
-        
-
         returning_customers = deals['Customer_id'].nunique() - new_customers
     else:
         new_customers = 0
@@ -91,9 +89,7 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
     else:
         prev_extention_rate = 0
 
-    # for outlier we need all of data so i think its better to skip it
-
-    
+    # KPI Section
     if horizontal:
         st.subheader("شاخص‌های کلیدی عملکرد (KPI)")
         colKPI1, colKPI2, colKPI3, colKPI4 = st.columns(4)
@@ -137,7 +133,6 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
             f"{extention_rate:.2f}%",
             pct_diff(extention_rate, prev_extention_rate)
         )
-        
     else:
         st.metric(
             "تعداد کل معاملات",
@@ -159,7 +154,6 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
             f"{avg_deal_value:,.0f}",
             pct_diff(avg_deal_value, prev_avg_deal_value)
         )
-
         st.metric(
             "مشتریان جدید",
             f"{new_customers}",
@@ -182,33 +176,40 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
 
     # customers clusters
     customer_ids = deals['Customer_id'].values.tolist()
-    customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
-    cluster_query = f"""
-        select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
-        where customer_id in ({customer_ids_list})
-        """
-    cluster_df = exacute_query(cluster_query)
+    if customer_ids:
+        customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
+        cluster_query = f"""
+            select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
+            where customer_id in ({customer_ids_list})
+            """
+        cluster_df = exacute_query(cluster_query)
+        if not cluster_df.empty and 'rfm_segment' in cluster_df.columns:
+            segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
+            segment_counts.columns = ['rfm_segment', 'count']
 
-    segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
-    segment_counts.columns = ['rfm_segment', 'count']
+            cluster_chart = px.bar(
+                segment_counts,
+                x='rfm_segment',
+                y='count',
+                title='',
+                labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
+                text='count',
+                color='rfm_segment'
+            )
+            cluster_chart.update_traces(textposition='outside')
+            cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
+            st.subheader('توزیع سگمنت مشتریان')
+            st.plotly_chart(cluster_chart)
+        else:
+            st.info("داده‌ای برای سگمنت مشتریان یافت نشد.")
 
-    cluster_chart = px.bar(
-        segment_counts,
-        x='rfm_segment',
-        y='count',
-        title='',
-        labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
-        text='count',
-        color='rfm_segment'
-    )
-    cluster_chart.update_traces(textposition='outside')
-    cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
-    st.subheader('توزیع سگمنت مشتریان')
-    st.plotly_chart(cluster_chart)
-
-    # customers detials
-    st.subheader("جزئیات مشتریان")
-    st.write(cluster_df)
+        # customers detials
+        st.subheader("جزئیات مشتریان")
+        st.write(cluster_df)
+        return cluster_df
+    else:
+        st.info("داده‌ای برای مشتریان یافت نشد.")
+        return pd.DataFrame()
 
 def main():
     st.set_page_config(page_title="تحلیل کانال فروش", page_icon="📊", layout="wide")
@@ -223,7 +224,7 @@ def main():
         with col1:
             st.subheader("انتخاب بازه زمانی : ")
             config = Config(
-                # always_open=True,
+                always_open=True,
                 dark_mode=True,
                 locale="fa",
                 maximum_date=jdatetime.date.today() - jdatetime.timedelta(days=3),
@@ -266,8 +267,6 @@ def main():
                     default=[],
                     key='channels_multiselect_box'
                 )
-            # if len(selected_channels) == 1:
-            #     channel_transitions = st.checkbox("بررسی انتقال میان کانالها؟", value=True, key='channel_transitions_checkbox')
 
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
@@ -307,9 +306,26 @@ def main():
             match len(selected_channels):
                 case 1:
                     # analysise on channel
-                    channel_analysis(
+                    cluster_df = channel_analysis(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
                     )
+                    if not cluster_df.empty:
+                        cols = st.columns(2)
+                        with cols[0]:
+                            st.download_button(
+                                label="دانلود داده‌ها به صورت CSV",
+                                data=convert_df(cluster_df),
+                                file_name='rfm_segmentation_with_churn.csv',
+                                mime='text/csv',
+                            )
+
+                        with cols[1]:
+                            st.download_button(
+                                label="دانلود داده‌ها به صورت اکسل",
+                                data=convert_df_to_excel(cluster_df),
+                                file_name='rfm_segmentation_with_churn.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            )
 
                 case 2:
                     # compare two channels
@@ -317,19 +333,60 @@ def main():
                     channel1, channel2 = selected_channels
                     with col1:                        
                         st.write(channel1)
-                        channel_analysis(
-                            deals[deals['DealChannel']==channel1], prev_deals[prev_deals['DealChannel']==channel1], df_first_deals, start_date_str, end_date_str, False
+                        cluster_df = channel_analysis(
+                            deals[deals['DealChannel'] == channel1],
+                            prev_deals[prev_deals['DealChannel'] == channel1],
+                            df_first_deals, start_date_str, end_date_str, False
                         )
+                        if not cluster_df.empty:
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت CSV",
+                                    data=convert_df(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.csv',
+                                    mime='text/csv',
+                                    key=f"download_csv_{channel1}"
+                                )
+
+                            with cols[1]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت اکسل",
+                                    data=convert_df_to_excel(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.xlsx',
+                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    key=f"download_excel_{channel1}"
+                                )
                     with col2:
                         st.write(channel2)
-                        channel_analysis(
-                            deals[deals['DealChannel']==channel2], prev_deals[prev_deals['DealChannel']==channel2], df_first_deals, start_date_str, end_date_str, False
+                        cluster_df = channel_analysis(
+                            deals[deals['DealChannel'] == channel2],
+                            prev_deals[prev_deals['DealChannel'] == channel2],
+                            df_first_deals, start_date_str, end_date_str, False
                         )
+                        if not cluster_df.empty:
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت CSV",
+                                    data=convert_df(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.csv',
+                                    mime='text/csv',
+                                    key=f"download_csv_{channel2}"
+                                )
 
+                            with cols[1]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت اکسل",
+                                    data=convert_df_to_excel(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.xlsx',
+                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    key=f"download_excel_{channel2}"
+                                )
+
+                # compare more than two channels
                 case _:
-                    # compare more than two channels
                     metrics = []
-
                     # Collect all unique customer_ids for all selected channels
                     all_customer_ids = deals[deals['DealChannel'].isin(selected_channels)]['Customer_id'].unique().tolist()
                     if all_customer_ids:
@@ -350,7 +407,7 @@ def main():
                         avg_value = channel_deals[channel_deals['Status'] == 'Won']['DealValue'].mean() / 10 if not channel_deals.empty else 0
                         total_value = channel_deals['DealValue'].sum() / 10 if not channel_deals.empty else 0
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0
-                        renewal_rate = len(channel_deals[channel_deals['DealType']=="Renewal"]) / successful_deals * 100
+                        renewal_rate = len(channel_deals[channel_deals['DealType']=="Renewal"]) / successful_deals * 100 if successful_deals > 0 else 0
                         total_nights = channel_deals['Nights'].sum() if 'Nights' in channel_deals.columns and not channel_deals.empty else 0
                         # New customers
                         if (

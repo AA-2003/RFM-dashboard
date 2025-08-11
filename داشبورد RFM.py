@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.load_data import exacute_queries
+from utils.load_data import BigQueryExecutor
 from utils.custom_css import apply_custom_css
 from utils.auth import login
 
@@ -131,8 +131,9 @@ def main() -> None:
             GROUP BY rfm_segment;     
             """,
         ]
+        with BigQueryExecutor() as bq_executor:
+            results = bq_executor.exacute_queries(queries)
 
-        results = exacute_queries(queries)
         if any(r is None or (hasattr(r, "empty") and r.empty) for r in results):
             st.info("خطایی در بارگزاری داده ها پیش امده است!")
         else:

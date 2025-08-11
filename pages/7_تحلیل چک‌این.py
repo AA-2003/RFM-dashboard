@@ -4,7 +4,6 @@ import os
 import sys
 from datetime import time, timedelta
 from streamlit_nej_datepicker import datepicker_component, Config
-import jdatetime
 
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
@@ -12,15 +11,6 @@ from utils.custom_css import apply_custom_css
 from utils.auth import login
 from utils.load_data import exacute_query, exacute_queries
 
-
-def filter_tips(selected_complexes, all_tips):
-    if len(selected_complexes) == 0:
-        return all_tips
-    else:
-        return [
-            tip for tip in all_tips
-            if any(complex_name in tip for complex_name in selected_complexes)
-        ]
 
 def main():
     """Main function to run the Streamlit app."""
@@ -48,9 +38,9 @@ def main():
 
         ### date filter
         with col1:
-            st.subheader("انتخاب بازه زمانی : ")
+            st.subheader("انتخاب بازه زمانی تاریخ ورود: ")
             config = Config(
-                # always_open=True,
+                always_open=True,
                 dark_mode=True,
                 locale="fa",
                 minimum_date=min_date,
@@ -79,52 +69,43 @@ def main():
 
         ### complex filter     
         with col2:
-            with open("data/tip_names.txt", "r", encoding="utf-8") as file:
-                tip_options = [line.strip() for line in file if line.strip()]           
-        
-                complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
-                complex_options = [
-                            "جمهوری", "اقدسیه", "جردن", "کوروش", "ترنج", 
-                            "شریعتی (پاسداران)", "وزرا", "کشاورز", "مرزداران", "میرداماد",
-                            "ونک", "ولنجک", "پارک وی", "بهشتی", "ولیعصر", "ویلا",
-                            ]
-                if complex_status:
-                    tip_values = tip_options
-                else:
-                    complex_values = st.multiselect(
+            products = exacute_query("""
+                    SELECT * fROM `customerhealth-crm-warehouse.didar_data.Products`
+                    """)
+            complex_options = [b for b in products['Building_name'].unique().tolist() if b != 'not_a_building']
+            tip_options =  products[products['Building_name']!='not_a_building']['ProductName'].unique().tolist() 
+    
+            complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
+            if complex_status:
+                tip_values = tip_options
+            else:
+                complex_values = st.multiselect(
+                        "Tip انتخاب وضعیت :",
+                        options=complex_options,
+                        default=[],  # empty if user doesn’t pick
+                        key='complex_multiselect_selectbox'
+                    )
+                cols = st.columns([1, 4])
+
+                with cols[1]:
+                    tip_options = products[(products['Building_name']!='not_a_building')&
+                                            (products['Building_name'].isin(complex_values))]['ProductName'].unique().tolist()
+                    tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
+                    if tip_status:
+                        tip_values = tip_options
+                    else:
+                        tip_values = st.multiselect(
                             "Tip انتخاب وضعیت :",
-                            options=complex_options,
+                            options=tip_options,
                             default=[],  # empty if user doesn’t pick
-                            key='complex_multiselect_selectbox'
+                            key='tip_multiselect_selectbox'
                         )
-                    cols = st.columns([1, 4])
-
-                    with cols[1]:
-                        tip_options = filter_tips(complex_values, tip_options)
-                        tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
-                        if tip_status:
-                            tip_values = tip_options
-                        else:
-                            tip_values = st.multiselect(
-                                "Tip انتخاب وضعیت :",
-                                options=tip_options,
-                                default=[],  # empty if user doesn’t pick
-                                key='tip_multiselect_selectbox'
-                            )
-                        if tip_values == []:
-                            tip_values = tip_options
+                    if tip_values == []:
+                        tip_values = tip_options
         if st.button("محاسبه و نمایش", key='calculate_button'):
-
-            products_query = """
-                SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`
-            """
-            products = exacute_query(products_query)
-            # Fix: set index to ProductCode, not ProductName
             products = products.set_index('ProductCode')
             tips_df = pd.DataFrame({"tip": tip_values})
-            # Map tip to ProductCode using ProductName as key
-            # So we need a mapping from ProductName to ProductCode
-            # But for reverse mapping (ProductCode to ProductName), we need a dict
+            # Map tip to ProductCode using ProductName
             name_to_code = products.reset_index().set_index('ProductName')['ProductCode'].to_dict()
             code_to_name = products.reset_index().set_index('ProductCode')['ProductName'].to_dict()
             tips_df['code'] = tips_df['tip'].map(name_to_code)
@@ -140,29 +121,29 @@ def main():
                 AND Status = 'Won'
             """
             filtered_deals = exacute_query(deals_query)
-            # st.write(filtered_deals)
 
             if filtered_deals.empty:
-                st.warning("هیچ ورود (چک‌این) در بازه و فیلتر انتخابی یافت نشد.")
+                st.warning("هیچ ورودی (چک‌این) در بازه و فیلتر انتخابی یافت نشد.")
                 st.stop()
 
             # KPIs
             total_arrivals = filtered_deals['Customer_id'].nunique()
-
     
             date_range_days = (end_date - start_date).days + 1
             weeks_in_range = date_range_days / 7.0 if date_range_days > 0 else 0
             avg_weekly = int(total_arrivals / weeks_in_range if weeks_in_range > 0 else 0)
 
             if 'Nights' in filtered_deals.columns:
-                avg_stay = filtered_deals['Nights'].mean()
+                avg_stay = filtered_deals.groupby('Customer_id')['Nights'].sum().mean()
             else:
                 avg_stay = 0
 
             filtered_deals['IsExtension'] = filtered_deals['DealType'].eq('Renewal')
-            total_extensions = filtered_deals[filtered_deals['IsExtension'] ==True]['Customer_id'].nunique()
 
-            total_new_arrivals = filtered_deals.loc[~filtered_deals['IsExtension'], 'Customer_id'].nunique()
+            total_extensions = filtered_deals[(filtered_deals['IsExtension'] ==True)]['Customer_id'].nunique()
+            
+
+            total_new_arrivals = filtered_deals.loc[(~filtered_deals['IsExtension']), 'Customer_id'].nunique()
 
             colA1, colA2, colA3, colA4, colA5  = st.columns(5)
             with colA1:

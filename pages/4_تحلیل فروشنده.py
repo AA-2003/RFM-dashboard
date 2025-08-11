@@ -14,6 +14,7 @@ sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.auth import login
 from utils.load_data import exacute_query
+from utils.funcs import convert_df, convert_df_to_excel
 
 def get_first_successful_deal_date(selected_sellers):
     """
@@ -49,8 +50,8 @@ def pct_diff(new_val, old_val):
     return f"{((new_val - old_val)/abs(old_val)*100):.2f}%"
 
 
-@st.cache_data(ttl=3600)
-def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_str, horizontal=True):
+@st.cache_data(ttl=600, show_spinner=False)
+def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_str, horizontal=True)-> pd.DataFrame:
     # Calculate KPIs    
     total_deals = len(deals)
     successful_deals = deals[deals['Status'] == 'Won']
@@ -96,30 +97,6 @@ def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_st
     else:
         prev_extention_rate = 0
 
-    # for outlier we need all of data so i think its better to skip it
-
-    # customers clusters
-    customer_ids = deals['Customer_id'].values.tolist()
-    customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
-    cluster_query = f"""
-        select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
-        where customer_id in ({customer_ids_list})
-        """
-    cluster_df = exacute_query(cluster_query)
-
-    segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
-    segment_counts.columns = ['rfm_segment', 'count']
-
-    cluster_chart = px.bar(
-        segment_counts,
-        x='rfm_segment',
-        y='count',
-        title='توزیع سگمنت مشتریان',
-        labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
-        text='count',
-        color='rfm_segment',
-    )
-    cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
 
     if horizontal:
         st.subheader("شاخص‌های کلیدی عملکرد (KPI)")
@@ -205,17 +182,68 @@ def seller_analys(deals, prev_deals, df_first_deals, start_date_str, end_date_st
             f"{extention_rate:.2f}%",
             pct_diff(extention_rate, prev_extention_rate)
         )
-        st.write('---')
-    st.plotly_chart(cluster_chart)
-    # customers detials
-    st.subheader("جزئیات مشتریان")
-    st.write(cluster_df)
+    st.write('---')
 
-    ### time series
-    # for time series we need all of data so i think its better to skip it
+    # customers clusters
+    customer_ids = deals['Customer_id'].values.tolist()
+    if customer_ids:
+        customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
+        cluster_query = f"""
+            SELECT *
+            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments` r
+            INNER JOIN (
+                SELECT Customer_ID, customer_nps, customer_amneties_score, customer_staff_score
+                FROM `customerhealth-crm-warehouse.CHS.CHS_components`
+            ) c
+            ON c.Customer_ID = r.customer_id
+            WHERE r.customer_id IN ({customer_ids_list})
+        """
+        cluster_df = exacute_query(cluster_query)
+        if cluster_df is not None and not cluster_df.empty and 'rfm_segment' in cluster_df.columns:
+            segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
+            segment_counts.columns = ['rfm_segment', 'count']
 
+            cluster_chart = px.bar(
+                segment_counts,
+                x='rfm_segment',
+                y='count',
+                title='توزیع سگمنت مشتریان',
+                labels={'rfm_segment': 'سگمنت', 'count': 'تعداد'},
+                text='count',
+                color='rfm_segment',
+            )
+            cluster_chart.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
 
-    return 
+            st.plotly_chart(cluster_chart)
+        else:
+            st.info("داده‌ای برای نمایش سگمنت مشتریان وجود ندارد.")
+        # customers detials
+        st.subheader("جزئیات مشتریان")
+        column_map = {
+            'customer_id': 'شناسه مشتری',
+            'first_name': 'نام',
+            'last_name': 'نام خانوادگی',
+            'phone_number': 'شماره تماس',
+            'recency': 'تازگی خرید',
+            'frequency': 'تعداد خرید',
+            'monetary': 'مبلغ کل خرید',
+            'total_nights': 'تعداد شب اقامت',
+            'last_reserve_date': 'تاریخ آخرین رزرو',
+            'last_checkin': 'تاریخ آخرین ورود',
+            'last_checkout': 'تاریخ آخرین خروج',
+            'favorite_product': 'محصول مورد علاقه',
+            'last_product': 'آخرین محصول',
+            'rfm_segment': 'سگمنت RFM',
+            'customer_nps': 'امتیاز NPS مشتری',
+            'customer_amneties_score': 'امتیاز امکانات مشتری',
+            'customer_staff_score': 'امتیاز پرسنل مشتری'
+        }
+        persian_cluster_df = cluster_df.rename(columns=column_map) if cluster_df is not None else pd.DataFrame()
+        st.write(persian_cluster_df)
+    else:
+        st.info("هیچ مشتری‌ای برای این فروشنده وجود ندارد.")
+        persian_cluster_df = pd.DataFrame()
+    return persian_cluster_df
 
 def main():
     st.set_page_config(page_title="تحلیل فروشنده", page_icon="📊", layout="wide")
@@ -228,9 +256,9 @@ def main():
 
         ### date filter
         with col1:
-            st.subheader("انتخاب بازه زمانی : ")
+            st.subheader("انتخاب بازه زمانی تاریخ انجام معامله: ")
             config = Config(
-                # always_open=True,
+                always_open=True,   
                 dark_mode=True,
                 locale="fa",
                 maximum_date=jdatetime.date.today() - jdatetime.timedelta(days=3),
@@ -312,9 +340,26 @@ def main():
             match len(selected_sellers):
                 case 1:
                     # analyse on seller
-                    seller_analys(
+                    cluster_df = seller_analys(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
                                 )
+                    if not cluster_df.empty:
+                        cols = st.columns(2)
+                        with cols[0]:
+                            st.download_button(
+                                label="دانلود داده‌ها به صورت CSV",
+                                data=convert_df(cluster_df),
+                                file_name='rfm_segmentation_with_churn.csv',
+                                mime='text/csv',
+                            )
+
+                        with cols[1]:
+                            st.download_button(
+                                label="دانلود داده‌ها به صورت اکسل",
+                                data=convert_df_to_excel(cluster_df),
+                                file_name='rfm_segmentation_with_churn.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            )
 
                 case 2:
                     # compare two sellers
@@ -322,16 +367,56 @@ def main():
                     seller1, seller2 = selected_sellers
                     with col1:                        
                         st.write(seller1)
-                        seller_analys(
+                        cluster_df = seller_analys(
                             deals[deals['DealExpert']==seller1], prev_deals[prev_deals['DealExpert']==seller1],
                             df_first_deals, start_date_str, end_date_str, horizontal=False
                         )
+                        if not cluster_df.empty:
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت CSV",
+                                    data=convert_df(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.csv',
+                                    mime='text/csv',
+                                    key=f"download_csv_{seller1}"
+                                )
+
+                            with cols[1]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت اکسل",
+                                    data=convert_df_to_excel(cluster_df),
+                                    file_name='rfm_segmentation_with_churn.xlsx',
+                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    key=f"download_excel_{seller1}"
+                                )
+
                     with col2:
                         st.write(seller2)
-                        seller_analys(
+                        persian_cluster_df = seller_analys(
                             deals[deals['DealExpert']==seller2], prev_deals[prev_deals['DealExpert']==seller2],
                             df_first_deals, start_date_str, end_date_str, horizontal=False
                         )
+                        
+                        if not persian_cluster_df.empty:
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت CSV",
+                                    data=convert_df(persian_cluster_df),
+                                    file_name='rfm_segmentation_with_churn.csv',
+                                    mime='text/csv',
+                                    key=f"download_csv_{seller2}"
+                                )
+
+                            with cols[1]:
+                                st.download_button(
+                                    label="دانلود داده‌ها به صورت اکسل",
+                                    data=convert_df_to_excel(persian_cluster_df),
+                                    file_name='rfm_segmentation_with_churn.xlsx',
+                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    key=f"download_excel_{seller2}"
+                                )
 
                 case _:
                     # compare more than two sellers
@@ -347,13 +432,13 @@ def main():
                         all_cluster_df = exacute_query(cluster_query)
                     else:
                         all_cluster_df = pd.DataFrame()
-                    
+                
                     for seller in selected_sellers:
                         seller_deals = deals[deals['DealExpert'] == seller]
                         seller_successful = seller_deals[seller_deals['Status'] == 'Won']
                         total_deals = len(seller_deals)
                         successful_deals = len(seller_successful)
-                        renewal_rate = len(seller_deals[seller_deals['DealType']=="Renewal"]) / successful_deals * 100
+                        renewal_rate = len(seller_deals[seller_deals['DealType']=="Renewal"]) / successful_deals * 100 if successful_deals != 0 else 0
                         total_value = seller_deals[seller_deals['Status'] == 'Won']['DealValue'].sum() / 10 if not seller_deals.empty else 0
                         avg_value = seller_deals[seller_deals['Status'] == 'Won']['DealValue'].mean() / 10 if not seller_deals.empty else 0
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0

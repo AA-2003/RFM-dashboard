@@ -10,6 +10,7 @@ sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.auth import login
 from utils.load_data import exacute_queries, exacute_query
+from utils.funcs import convert_df, convert_df_to_excel
 
 
 def main():
@@ -116,7 +117,7 @@ def main():
             period2 = st.selectbox("دوره دوم را انتخاب کنید:", months, key="period2")
             segment2 = st.selectbox("سگمنت دوم را انتخاب کنید:", ['All'] + segments, key="segment2")
 
-        # Map period to rfms index
+        # Map period to rfms index and to a numeric order for comparison
         period_map = {
             'این ماه': 'customerhealth-crm-warehouse.didar_data.RFM_segments',
             'سه ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before',
@@ -124,11 +125,17 @@ def main():
             'نه ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_nine_months_before',
             'دوازده ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_one_year_before'
         }
-
+        period_number_map = {
+            'این ماه': 0,
+            'سه ماه پیش': 1,
+            'شش ماه پیش': 2,
+            'نه ماه پیش': 3,
+            'دوازده ماه پیش': 4
+        }
 
         if st.button("اجرا", key='calculate_button'):            
             print(period_map.get(period1, 0), period_map.get(period2, 0))
-            if period_map.get(period1, 0) <= period_map.get(period2, 0):
+            if period_number_map.get(period1, -1) <= period_number_map.get(period2, -1):
                 st.warning("دوره اول باید قبل از دوره دوم باشد")
             else:
                 if segment2 == 'All':
@@ -227,6 +234,22 @@ def main():
 
         st.subheader("میانگین امتیازهای هپی کال هر سگمنت")
         st.dataframe(agg_scores)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="دانلود داده‌ها به صورت CSV",
+                data=convert_df(agg_scores),
+                file_name='rfm_segmentation_with_churn.csv',
+                mime='text/csv',
+            )
+
+        with col2:
+            st.download_button(
+                label="دانلود داده‌ها به صورت اکسل",
+                data=convert_df_to_excel(agg_scores),
+                file_name='rfm_segmentation_with_churn.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
     else:
         login()
 if __name__ == "__main__":

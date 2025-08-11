@@ -4,27 +4,16 @@ import sys
 import plotly.express as px
 from streamlit_nej_datepicker import datepicker_component, Config
 import jdatetime
-import datetime
-import math
 
 # Add path and imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.load_data import exacute_query
 from utils.auth import login
+from utils.funcs import convert_df, convert_df_to_excel
 
 def to_sql_list(values):
     return ", ".join(f"'{v}'" for v in values)
-
-def filter_tips(selected_complexes, all_tips):
-    if len(selected_complexes) == 0:
-        return all_tips
-    else:
-        return [
-            tip for tip in all_tips
-            if any(complex_name in tip for complex_name in selected_complexes)
-        ]
-
 
 def main():
     st.set_page_config(page_title="تحلیل خرید", page_icon="📊", layout="wide")
@@ -37,7 +26,7 @@ def main():
 
         ### date filter
         with col1:
-            st.subheader("انتخاب بازه زمانی : ")
+            st.subheader("انتخاب بازه زمانی تاریخ ایجاد معامله: ")
             config = Config(
                 always_open = True,
                 dark_mode=True,
@@ -116,20 +105,18 @@ def main():
                 segment_values = semention_options
         
             # tip filter  
-            with open("data/tip_names.txt", "r", encoding="utf-8") as file:
-                tip_options = [line.strip() for line in file if line.strip()]           
-        
+            products = exacute_query("""
+                        SELECT * fROM `customerhealth-crm-warehouse.didar_data.Products`
+                        """)
+            complex_options = [b for b in products['Building_name'].unique().tolist() if b != 'not_a_building']
+            tip_options =  products[products['Building_name']!='not_a_building']['ProductName'].unique().tolist() 
+    
             complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
-            complex_options = [
-                            "جمهوری", "اقدسیه", "جردن", "کوروش", "ترنج", 
-                            "شریعتی (پاسداران)", "وزرا", "کشاورز", "مرزداران", "میرداماد",
-                            "ونک", "ولنجک", "پارک وی", "بهشتی", "ولیعصر", "ویلا",
-                        ]
             if complex_status:
                 tip_values = tip_options
             else:
                 complex_values = st.multiselect(
-                        "انتخاب مجتمع:",
+                        "Tip انتخاب وضعیت :",
                         options=complex_options,
                         default=[],  # empty if user doesn’t pick
                         key='complex_multiselect_selectbox'
@@ -137,13 +124,14 @@ def main():
                 cols = st.columns([1, 4])
 
                 with cols[1]:
-                    tip_options = filter_tips(complex_values, tip_options)
+                    tip_options = products[(products['Building_name']!='not_a_building')&
+                                            (products['Building_name'].isin(complex_values))]['ProductName'].unique().tolist()
                     tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
                     if tip_status:
                         tip_values = tip_options
                     else:
                         tip_values = st.multiselect(
-                            "انتخاب تیپ:",
+                            "Tip انتخاب وضعیت :",
                             options=tip_options,
                             default=[],  # empty if user doesn’t pick
                             key='tip_multiselect_selectbox'
@@ -200,7 +188,7 @@ def main():
                     ELSE "غیر ماهانه"
                 END AS monthly_status,
                 CASE
-                    WHEN last_checkin < CURRENT_DATE() AND last_checkout > CURRENT_DATE() THEN 'مقیم'
+                    WHEN last_checkin < DATE('{end_date_str}') AND last_checkout > DATE('{end_date_str}') THEN 'مقیم'
                     ELSE 'غیر مقیم'
                 END AS is_staying,
                 CASE 
@@ -227,41 +215,6 @@ def main():
             customer_ids = ids['customer_id'].dropna().unique().tolist()
             id_list_sql = ', '.join(str(int(i)) for i in customer_ids)
 
-            # Prepare mapping for complexes as a CASE statement for SQL
-            complex_case = """
-                CASE
-                    WHEN p.ProductName LIKE '%جمهوری%' THEN 'جمهوری'
-                    WHEN p.ProductName LIKE '%اقدسیه%' THEN 'اقدسیه'
-                    WHEN p.ProductName LIKE '%جردن%' THEN 'جردن'
-                    WHEN p.ProductName LIKE '%شریعتی%' THEN 'شریعتی (پاسداران)'
-                    WHEN p.ProductName LIKE '%پاسداران%' THEN 'شریعتی (پاسداران)'
-                    WHEN p.ProductName LIKE '%وزرا%' THEN 'وزرا'
-                    WHEN p.ProductName LIKE '%کشاورز%' THEN 'کشاورز'
-                    WHEN p.ProductName LIKE '%مرزداران%' THEN 'مرزداران'
-                    WHEN p.ProductName LIKE '%میرداماد%' THEN 'میرداماد'
-                    WHEN p.ProductName LIKE '%ونک%' THEN 'ونک'
-                    WHEN p.ProductName LIKE '%ولنجک%' THEN 'ولنجک'
-                    WHEN p.ProductName LIKE '%پارک وی%' THEN 'پارک وی'
-                    WHEN p.ProductName LIKE '%بهشتی%' THEN 'بهشتی'
-                    WHEN p.ProductName LIKE '%ولیعصر%' THEN 'ولیعصر'
-                    WHEN p.ProductName LIKE '%ویلا%' THEN 'ویلا'
-                    WHEN p.ProductName LIKE '%کوروش%' THEN 'کوروش'
-                    WHEN p.ProductName LIKE '%ترنج%' THEN 'ترنج'
-                    ELSE NULL
-                END AS complex
-            """
-
-            # Mapping ProductCode to Region as a CASE statement for SQL
-            region_case = """
-                CASE
-                    WHEN p.ProductCode IN ('GA3','EV1','EV2','EV3','GA1','GA2','GA4','GA5','GA6','JD1','JD2','JD3','JD4','PV1','PV2','PV3','PV4') THEN 'شمال'
-                    WHEN p.ProductCode IN ('AF1','AF2','AF3','KS1','KS2','TRN1','TRN2','TRN3','TRN4','TRN5') THEN 'غرب'
-                    WHEN p.ProductCode IN ('KE1','KE2','KE3','NM1','NM2','NM3','NM4','NM5','NS1','NS2','NS3','NS4','NS5','VA1','VA2','VLA1','VLA2','VLA3','VLA4','VLA5','VLA6','VLA7','VLA8') THEN 'مرکز'
-                    WHEN p.ProductCode IN ('MD1','MD2','MD3','MD4','MD5','MD6','MD7','MD8','MD9','MD10','MD11','MD12','PA1','PA2','ZZ3') THEN 'شرق'
-                    ELSE 'نامشخص'
-                END AS region
-            """
-
             # Mapping quality_rank to Persian label
             quality_case = """
                 CASE
@@ -276,23 +229,23 @@ def main():
             # Only include selected tip_values in the query
             tip_values_sql = ', '.join([f"'{v}'" for v in tip_values])
 
-            # Query: join deals and products, filter by customer and tip, map complex, region, and quality, aggregate in SQL
+            # Query: join deals and products, filter by customer and tip, map complex, region, and quality, but NO aggregation in SQL
             agg_query = f"""
                 SELECT 
-                    {complex_case},
-                    {region_case},
+                    d.Customer_id,
+                    p.Region as region,
+                    p.Building_name as complex,
                     {quality_case},
-                    COUNT(*) AS Frequency,
-                    SUM(d.DealValue) AS DealValue,
-                    SUM(Nights) as total_nights
+                    d.DealValue,
+                    d.Nights
                 FROM `customerhealth-crm-warehouse.didar_data.deals` d
                 JOIN `customerhealth-crm-warehouse.didar_data.Products` p
                     ON d.Product_code = p.ProductCode
                 WHERE d.Customer_id IN ({id_list_sql})
                   AND p.ProductName IN ({tip_values_sql})
                   AND d.DealCreateDate BETWEEN DATE('{start_date_str}') AND DATE('{end_date_str}')
-                GROUP BY complex, region, quality_rank_label
-                HAVING complex IS NOT NULL
+                  AND p.Building_name IS NOT NULL
+                  AND d.Status = 'Won'
             """
 
             agg_df = exacute_query(agg_query)
@@ -300,35 +253,52 @@ def main():
             if agg_df is None or agg_df.empty:
                 st.warning("هیچ معامله‌ای با فیلترهای اعمال شده پیدا نشد!!!")
             else:
-                # Format numbers with thousands separator
-                agg_df['Frequency_fmt'] = agg_df['Frequency'].apply(lambda x: f"{x:,}")
-                agg_df['DealValue_fmt'] = agg_df['DealValue'].apply(lambda x: f"{round(x/10_000_000):,} میلیون")
-                agg_df['total_nights_fmt'] = agg_df['total_nights'].apply(lambda x: f"{x:,}")
+                # Aggregate in pandas
+                agg_df['Frequency'] = 1  # Each row is a deal
+                # Frequency by complex
+                plot_df = agg_df.groupby('complex', as_index=False).agg({'Frequency': 'sum'})
+                plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
+
+                # Monetary by complex
+                plot_monetary_df = agg_df.groupby('complex', as_index=False).agg({'DealValue': 'sum'})
+                plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
+                plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
+
+                # Total nights by complex
+                plot_nights_df = agg_df.groupby('complex', as_index=False).agg({'Nights': 'sum'})
+                plot_nights_df['total_nights_fmt'] = plot_nights_df['Nights'].apply(lambda x: f"{x:,}")
+
+                # Monetary by quality
+                quality_df = agg_df.groupby('quality_rank_label', as_index=False).agg({'DealValue': 'sum'})
+                quality_df = quality_df[quality_df['quality_rank_label'] != 'نامشخص']
+                quality_df['DealValue_fmt'] = quality_df['DealValue'].apply(lambda x: f"{round(x/1_000_000_000):,} میلیارد ریال")
+
+                # Monetary by region
+                region_agg = agg_df.groupby('region', as_index=False).agg({'DealValue': 'sum'})
+                region_agg = region_agg[region_agg['region'] != 'نامشخص']
+                region_agg['DealValue_billion'] = region_agg['DealValue'] / 10_000_000_000
+                region_agg['DealValue_billion_fmt'] = region_agg['DealValue_billion'].apply(lambda x: f"{x:,.1f} میلیارد تومن")
+
+                # Frequency by region
+                region_freq = agg_df.groupby('region', as_index=False).agg({'Frequency': 'sum'})
+                region_freq = region_freq[region_freq['region'] != 'نامشخص']
+                region_freq['Frequency_fmt'] = region_freq['Frequency'].apply(lambda x: f"{x:,}")
 
                 # Plot Frequency Distribution by Complex
                 st.subheader("توزیع فراوانی معاملات")
-                plot_df = agg_df.copy()
-                plot_df = plot_df[plot_df['complex'].notnull()]
-                plot_df['complex'] = plot_df['complex'].astype(str)
-                plot_df = plot_df.groupby('complex', as_index=False).agg({'Frequency': 'sum'})
-                # plot_df = plot_df.sort_values('Frequency', ascending=False)
-
                 fig_freq = px.bar(
                     plot_df,
                     x='complex',
                     y='Frequency',
                     title='',
                     labels={'complex': 'مجتمع', 'Frequency': 'تعداد خرید'},
-                    text='Frequency'
+                    text='Frequency_fmt'
                 )
                 fig_freq.update_xaxes(type='category')
                 st.plotly_chart(fig_freq)
 
                 # Plot Monetary Distribution by Complex
                 st.subheader("توزیع ارزش مالی معاملات")
-                plot_monetary_df = agg_df.groupby('complex', as_index=False).agg({'DealValue': 'sum'})
-                plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
-                plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
                 fig_monetary = px.bar(
                     plot_monetary_df,
                     x='complex',
@@ -346,27 +316,21 @@ def main():
 
                 # Plot Total Nights Distribution by Complex
                 st.subheader("توزیع تعداد شب به تفکیک مجتمع")
-                plot_nights_df = agg_df.groupby('complex', as_index=False).agg({'total_nights': 'sum'})
-                plot_nights_df['total_nights_fmt'] = plot_nights_df['total_nights'].apply(lambda x: f"{x:,}")
                 fig_nights = px.bar(
                     plot_nights_df,
                     x='complex',
-                    y='total_nights',
+                    y='Nights',
                     title='',
-                    labels={'complex': 'مجتمع', 'total_nights': 'تعداد شب'},
+                    labels={'complex': 'مجتمع', 'Nights': 'تعداد شب'},
                     text='total_nights_fmt'
                 )
                 fig_nights.update_traces(textposition='outside')
-                max_nights = plot_nights_df['total_nights'].max()
+                max_nights = plot_nights_df['Nights'].max()
                 fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
                 st.plotly_chart(fig_nights)
 
                 # Plot Monetary Distribution by Quality Rank
                 st.subheader("توزیع ارزش مالی به تفکیک نوع محصول")
-                quality_df = agg_df.groupby('quality_rank_label', as_index=False).agg({'DealValue': 'sum'})
-                # Remove 'نامشخص' if you want only 1-4
-                quality_df = quality_df[quality_df['quality_rank_label'] != 'نامشخص']
-                quality_df['DealValue_fmt'] = quality_df['DealValue'].apply(lambda x: f"{round(x/1_000_000_000):,} میلیارد ریال")
                 fig_quality = px.bar(
                     quality_df,
                     x='quality_rank_label',
@@ -384,11 +348,6 @@ def main():
                 with cols[0]:
                     # Plot Sale by Region (Monetary) as Pie Chart
                     st.subheader("میزان فروش در هر منطقه")
-                    region_agg = agg_df.groupby('region', as_index=False).agg({'DealValue': 'sum'})
-                    region_agg = region_agg[region_agg['region'] != 'نامشخص']
-                    region_agg['DealValue_billion'] = region_agg['DealValue'] / 10_000_000_000
-                    region_agg['DealValue_billion_fmt'] = region_agg['DealValue_billion'].apply(lambda x: f"{x:,.1f} میلیارد تومن")
-                    
                     fig_region_pie = px.pie(
                         region_agg,
                         names='region',
@@ -407,9 +366,6 @@ def main():
                 with cols[1]:
                     # Plot Sale Frequency by Region as Pie Chart
                     st.subheader("تعداد معاملات در هر منطقه")
-                    region_freq = agg_df.groupby('region', as_index=False).agg({'Frequency': 'sum'})
-                    region_freq = region_freq[region_freq['region'] != 'نامشخص']
-                    region_freq['Frequency_fmt'] = region_freq['Frequency'].apply(lambda x: f"{x:,}")
                     fig_region_freq_pie = px.pie(
                         region_freq,
                         names='region',
@@ -423,6 +379,31 @@ def main():
                         hovertemplate='<b>%{label}</b><br>تعداد معاملات: %{value:,}'
                     )
                     st.plotly_chart(fig_region_freq_pie)
+
+                # --- New Section: Show each customerid total nights in each complex ---
+                st.subheader("تعداد شب هر مشتری در هر مجتمع")
+                cust_nights_pivot = agg_df.groupby(['Customer_id', 'complex'], as_index=False)['Nights'].sum()
+                cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='complex', values='Nights').fillna(0).astype(int)
+                cust_nights_pivot.index.name = 'کد مشتری'
+                cust_nights_pivot.columns.name = 'مجتمع'
+                st.dataframe(cust_nights_pivot.reset_index(), use_container_width=True)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="دانلود داده‌ها به صورت CSV",
+                        data=convert_df(cust_nights_pivot.reset_index()),
+                        file_name='rfm_segmentation_with_churn.csv',
+                        mime='text/csv',
+                    )
+
+                with col2:
+                    st.download_button(
+                        label="دانلود داده‌ها به صورت اکسل",
+                        data=convert_df_to_excel(cust_nights_pivot.reset_index()),
+                        file_name='rfm_segmentation_with_churn.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    )
     else:
         login()
 
