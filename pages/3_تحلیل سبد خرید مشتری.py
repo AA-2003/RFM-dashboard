@@ -116,7 +116,7 @@ def main():
                 tip_values = tip_options
             else:
                 complex_values = st.multiselect(
-                        "Tip انتخاب وضعیت :",
+                        "انتخاب مجتمع :",
                         options=complex_options,
                         default=[],  # empty if user doesn’t pick
                         key='complex_multiselect_selectbox'
@@ -131,7 +131,7 @@ def main():
                         tip_values = tip_options
                     else:
                         tip_values = st.multiselect(
-                            "Tip انتخاب وضعیت :",
+                            "انتخاب تیپ :",
                             options=tip_options,
                             default=[],  # empty if user doesn’t pick
                             key='tip_multiselect_selectbox'
@@ -235,6 +235,7 @@ def main():
                     d.Customer_id,
                     p.Region as region,
                     p.Building_name as complex,
+                    p.ProductName as tip,
                     {quality_case},
                     d.DealValue,
                     d.Nights
@@ -255,18 +256,178 @@ def main():
             else:
                 # Aggregate in pandas
                 agg_df['Frequency'] = 1  # Each row is a deal
-                # Frequency by complex
-                plot_df = agg_df.groupby('complex', as_index=False).agg({'Frequency': 'sum'})
-                plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
 
-                # Monetary by complex
-                plot_monetary_df = agg_df.groupby('complex', as_index=False).agg({'DealValue': 'sum'})
-                plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
-                plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
+                # Determine if only one complex is selected
+                unique_complexes = agg_df['complex'].dropna().unique()
+                single_complex_selected = len(unique_complexes) == 1
 
-                # Total nights by complex
-                plot_nights_df = agg_df.groupby('complex', as_index=False).agg({'Nights': 'sum'})
-                plot_nights_df['total_nights_fmt'] = plot_nights_df['Nights'].apply(lambda x: f"{x:,}")
+                if single_complex_selected:
+                    # If only one complex is selected, group by tip (ProductName) instead of complex
+                    # Frequency by tip
+                    plot_df = agg_df.groupby('tip', as_index=False).agg({'Frequency': 'sum'})
+                    plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
+
+                    # Monetary by tip
+                    plot_monetary_df = agg_df.groupby('tip', as_index=False).agg({'DealValue': 'sum'})
+                    plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
+                    plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
+
+                    # Total nights by tip
+                    plot_nights_df = agg_df.groupby('tip', as_index=False).agg({'Nights': 'sum'})
+                    plot_nights_df['total_nights_fmt'] = plot_nights_df['Nights'].apply(lambda x: f"{x:,}")
+
+                    # Plot Frequency Distribution by Tip
+                    st.subheader("توزیع فراوانی معاملات به تفکیک تیپ")
+                    fig_freq = px.bar(
+                        plot_df,
+                        x='tip',
+                        y='Frequency',
+                        title='',
+                        labels={'tip': 'تیپ', 'Frequency': 'تعداد خرید'},
+                        text='Frequency_fmt'
+                    )
+                    fig_freq.update_xaxes(type='category')
+                    st.plotly_chart(fig_freq)
+
+                    # Plot Monetary Distribution by Tip
+                    st.subheader("توزیع ارزش مالی معاملات به تفکیک تیپ")
+                    fig_monetary = px.bar(
+                        plot_monetary_df,
+                        x='tip',
+                        y='DealValue',
+                        title='',
+                        labels={'tip': 'تیپ', 'DealValue': 'ارزش کل معاملات'},
+                        text='DealValue_fmt'
+                    )
+                    fig_monetary.update_traces(textposition='outside',
+                                               texttemplate='%{customdata}',
+                                               customdata=plot_monetary_df[['DealValue_fmt']])
+                    max_val = plot_monetary_df['DealValue'].max()
+                    fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
+                    st.plotly_chart(fig_monetary)
+
+                    # Plot Total Nights Distribution by Tip
+                    st.subheader("توزیع تعداد شب به تفکیک تیپ")
+                    fig_nights = px.bar(
+                        plot_nights_df,
+                        x='tip',
+                        y='Nights',
+                        title='',
+                        labels={'tip': 'تیپ', 'Nights': 'تعداد شب'},
+                        text='total_nights_fmt'
+                    )
+                    fig_nights.update_traces(textposition='outside')
+                    max_nights = plot_nights_df['Nights'].max()
+                    fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
+                    st.plotly_chart(fig_nights)
+
+                    # --- Show each customerid total nights in each tip ---
+                    st.subheader("تعداد شب هر مشتری در هر تیپ")
+                    cust_nights_pivot = agg_df.groupby(['Customer_id', 'tip'], as_index=False)['Nights'].sum()
+                    cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='tip', values='Nights').fillna(0).astype(int)
+                    cust_nights_pivot.index.name = 'کد مشتری'
+                    cust_nights_pivot.columns.name = 'تیپ'
+                    st.dataframe(cust_nights_pivot.reset_index(), use_container_width=True)
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            label="دانلود داده‌ها به صورت CSV",
+                            data=convert_df(cust_nights_pivot.reset_index()),
+                            file_name='rfm_segmentation_with_churn.csv',
+                            mime='text/csv',
+                        )
+
+                    with col2:
+                        st.download_button(
+                            label="دانلود داده‌ها به صورت اکسل",
+                            data=convert_df_to_excel(cust_nights_pivot.reset_index()),
+                            file_name='rfm_segmentation_with_churn.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        )
+                else:
+                    # Frequency by complex
+                    plot_df = agg_df.groupby('complex', as_index=False).agg({'Frequency': 'sum'})
+                    plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
+
+                    # Monetary by complex
+                    plot_monetary_df = agg_df.groupby('complex', as_index=False).agg({'DealValue': 'sum'})
+                    plot_monetary_df['DealValue_billion'] = plot_monetary_df['DealValue'] / 1_000_000_000
+                    plot_monetary_df['DealValue_fmt'] = plot_monetary_df['DealValue_billion'].apply(lambda x: f"{x:,.2f} میلیارد ریال")
+
+                    # Total nights by complex
+                    plot_nights_df = agg_df.groupby('complex', as_index=False).agg({'Nights': 'sum'})
+                    plot_nights_df['total_nights_fmt'] = plot_nights_df['Nights'].apply(lambda x: f"{x:,}")
+
+                    # Plot Frequency Distribution by Complex
+                    st.subheader("توزیع فراوانی معاملات")
+                    fig_freq = px.bar(
+                        plot_df,
+                        x='complex',
+                        y='Frequency',
+                        title='',
+                        labels={'complex': 'مجتمع', 'Frequency': 'تعداد خرید'},
+                        text='Frequency_fmt'
+                    )
+                    fig_freq.update_xaxes(type='category')
+                    st.plotly_chart(fig_freq)
+
+                    # Plot Monetary Distribution by Complex
+                    st.subheader("توزیع ارزش مالی معاملات")
+                    fig_monetary = px.bar(
+                        plot_monetary_df,
+                        x='complex',
+                        y='DealValue',
+                        title='',
+                        labels={'complex': 'مجتمع', 'DealValue': 'ارزش کل معاملات'},
+                        text='DealValue_fmt'
+                    )
+                    fig_monetary.update_traces(textposition='outside',
+                                               texttemplate='%{customdata}',
+                                               customdata=plot_monetary_df[['DealValue_fmt']])
+                    max_val = plot_monetary_df['DealValue'].max()
+                    fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
+                    st.plotly_chart(fig_monetary)
+
+                    # Plot Total Nights Distribution by Complex
+                    st.subheader("توزیع تعداد شب به تفکیک مجتمع")
+                    fig_nights = px.bar(
+                        plot_nights_df,
+                        x='complex',
+                        y='Nights',
+                        title='',
+                        labels={'complex': 'مجتمع', 'Nights': 'تعداد شب'},
+                        text='total_nights_fmt'
+                    )
+                    fig_nights.update_traces(textposition='outside')
+                    max_nights = plot_nights_df['Nights'].max()
+                    fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
+                    st.plotly_chart(fig_nights)
+
+                    # --- Show each customerid total nights in each complex ---
+                    st.subheader("تعداد شب هر مشتری در هر مجتمع")
+                    cust_nights_pivot = agg_df.groupby(['Customer_id', 'complex'], as_index=False)['Nights'].sum()
+                    cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='complex', values='Nights').fillna(0).astype(int)
+                    cust_nights_pivot.index.name = 'کد مشتری'
+                    cust_nights_pivot.columns.name = 'مجتمع'
+                    st.dataframe(cust_nights_pivot.reset_index(), use_container_width=True)
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            label="دانلود داده‌ها به صورت CSV",
+                            data=convert_df(cust_nights_pivot.reset_index()),
+                            file_name='rfm_segmentation_with_churn.csv',
+                            mime='text/csv',
+                        )
+
+                    with col2:
+                        st.download_button(
+                            label="دانلود داده‌ها به صورت اکسل",
+                            data=convert_df_to_excel(cust_nights_pivot.reset_index()),
+                            file_name='rfm_segmentation_with_churn.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        )
 
                 # Monetary by quality
                 quality_df = agg_df.groupby('quality_rank_label', as_index=False).agg({'DealValue': 'sum'})
@@ -283,51 +444,6 @@ def main():
                 region_freq = agg_df.groupby('region', as_index=False).agg({'Frequency': 'sum'})
                 region_freq = region_freq[region_freq['region'] != 'نامشخص']
                 region_freq['Frequency_fmt'] = region_freq['Frequency'].apply(lambda x: f"{x:,}")
-
-                # Plot Frequency Distribution by Complex
-                st.subheader("توزیع فراوانی معاملات")
-                fig_freq = px.bar(
-                    plot_df,
-                    x='complex',
-                    y='Frequency',
-                    title='',
-                    labels={'complex': 'مجتمع', 'Frequency': 'تعداد خرید'},
-                    text='Frequency_fmt'
-                )
-                fig_freq.update_xaxes(type='category')
-                st.plotly_chart(fig_freq)
-
-                # Plot Monetary Distribution by Complex
-                st.subheader("توزیع ارزش مالی معاملات")
-                fig_monetary = px.bar(
-                    plot_monetary_df,
-                    x='complex',
-                    y='DealValue',
-                    title='',
-                    labels={'complex': 'مجتمع', 'DealValue': 'ارزش کل معاملات'},
-                    text='DealValue_fmt'
-                )
-                fig_monetary.update_traces(textposition='outside',
-                                           texttemplate='%{customdata}',
-                                           customdata=plot_monetary_df[['DealValue_fmt']])
-                max_val = plot_monetary_df['DealValue'].max()
-                fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
-                st.plotly_chart(fig_monetary)
-
-                # Plot Total Nights Distribution by Complex
-                st.subheader("توزیع تعداد شب به تفکیک مجتمع")
-                fig_nights = px.bar(
-                    plot_nights_df,
-                    x='complex',
-                    y='Nights',
-                    title='',
-                    labels={'complex': 'مجتمع', 'Nights': 'تعداد شب'},
-                    text='total_nights_fmt'
-                )
-                fig_nights.update_traces(textposition='outside')
-                max_nights = plot_nights_df['Nights'].max()
-                fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
-                st.plotly_chart(fig_nights)
 
                 # Plot Monetary Distribution by Quality Rank
                 st.subheader("توزیع ارزش مالی به تفکیک نوع محصول")
@@ -379,31 +495,6 @@ def main():
                         hovertemplate='<b>%{label}</b><br>تعداد معاملات: %{value:,}'
                     )
                     st.plotly_chart(fig_region_freq_pie)
-
-                # --- New Section: Show each customerid total nights in each complex ---
-                st.subheader("تعداد شب هر مشتری در هر مجتمع")
-                cust_nights_pivot = agg_df.groupby(['Customer_id', 'complex'], as_index=False)['Nights'].sum()
-                cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='complex', values='Nights').fillna(0).astype(int)
-                cust_nights_pivot.index.name = 'کد مشتری'
-                cust_nights_pivot.columns.name = 'مجتمع'
-                st.dataframe(cust_nights_pivot.reset_index(), use_container_width=True)
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label="دانلود داده‌ها به صورت CSV",
-                        data=convert_df(cust_nights_pivot.reset_index()),
-                        file_name='rfm_segmentation_with_churn.csv',
-                        mime='text/csv',
-                    )
-
-                with col2:
-                    st.download_button(
-                        label="دانلود داده‌ها به صورت اکسل",
-                        data=convert_df_to_excel(cust_nights_pivot.reset_index()),
-                        file_name='rfm_segmentation_with_churn.xlsx',
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    )
     else:
         login()
 

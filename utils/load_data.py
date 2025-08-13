@@ -33,7 +33,7 @@ class BigQueryExecutor:
         pass
 
 
-    @st.cache_data(ttl=600, show_spinner=False)
+    @st.cache_data(ttl=3600, show_spinner=False)
     def exacute_query(_self, query: str) -> pd.DataFrame:
         """
         Execute a BigQuery query and return the results as a DataFrame.

@@ -119,6 +119,17 @@ def main() -> None:
             ORDER BY distcount DESC
             LIMIT 1
             """,
+            "SELECT AVG(total_nights) as avg_nights FROM `customerhealth-crm-warehouse.didar_data.RFM_segments` WHERE phone_number IS NOT NULL",
+            """
+            SELECT customer_id, first_name, last_name, frequency, monetary, total_nights, (total_nights / frequency) as avg_night
+            FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+            WHERE (total_nights / frequency) = (
+                SELECT MAX(total_nights / frequency)
+                FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                WHERE frequency > 2
+                and phone_number IS NOT NULL
+            )
+            """,
             """
             SELECT  rfm_segment as segment,
                     COUNT(customer_id) as count,
@@ -143,15 +154,17 @@ def main() -> None:
             most_selling_tip = results[3]   
             most_frequent_customer = results[4]
             most_nights_customer = results[5]
-            most_ave_deal_customer = results[6]
+            most_avg_deal_customer = results[6]
             most_distcount_customer = results[7]
-
+            avg_nights = results[8]['avg_nights'].values[0]
+            most_avg_nights_customer = results[9]
             # Segments count
-            segments = results[8]
+            segments = results[10]
 
             with tabs[0]:
                 st.metric("میانگین تعداد خرید مشتریان", int(mean_frequency))
                 st.metric("میانگین فروش به ازای هر مشتری", format_currency(mean_sales))
+                st.metric("میانگین تعداد شب اقامت", int(round(avg_nights, 0)))
                 st.metric("پرفروش ترین مجتمع", most_selling_complex['complex'].values[0])
                 st.metric("پرفروش ترین تیپ", most_selling_tip['tip'].values[0])
 
@@ -166,17 +179,24 @@ def main() -> None:
                 md_first = most_distcount_customer['first_name'].values[0]
                 md_last = most_distcount_customer['last_name'].values[0]
                 md_dist = most_distcount_customer['distcount'].values[0]/10
-                ma_first = most_ave_deal_customer['first_name'].values[0]
-                ma_last = most_ave_deal_customer['last_name'].values[0]
-                ma_avg = most_ave_deal_customer['avg_deal'].values[0]
+                ma_first = most_avg_deal_customer['first_name'].values[0]
+                ma_last = most_avg_deal_customer['last_name'].values[0]
+                ma_avg = most_avg_deal_customer['avg_deal'].values[0]
+                man_first = most_avg_nights_customer['first_name'].values[0]
+                man_last = most_avg_nights_customer['last_name'].values[0]
+                man_avg = most_avg_nights_customer['avg_night'].values[0]
 
                 st.metric(
-                    "پرخریدترین مشتری",
+                    "مشتری با بیشترین تعداد خرید",
                     f"{format_name(mf_first, mf_last)}: {mf_freq}"
                 )
                 st.metric(
                     "مشتری با بیشترین تعداد شب اقامت",
                     f"{format_name(mn_first, mn_last)}: {mn_nights}"
+                )
+                st.metric(
+                    "مشتری با بیشترین میانگین تعداد شب اقامت",
+                    f"{format_name(man_first, man_last)}: {int(man_avg)}"
                 )
                 st.metric(
                     "مشتری با بیشترین میانگین معامله",
@@ -194,7 +214,7 @@ def main() -> None:
             segments['میانگین تعداد شب اقامت'] = segments['Average_number_of_nights'].round(1)
             segments['میانگین تعداد رزرو'] = segments['Average_number_of_reservations'].round(1)
             st.write(segments[['دسته بندی', 'تعداد دسته', 'میانگین پرداختی', 'میانگین تعداد شب اقامت', 'میانگین تعداد رزرو']].sort_values(by='تعداد دسته', ascending=False).reset_index(drop=True))
-                
+            
 
 if __name__ == "__main__":
     main()

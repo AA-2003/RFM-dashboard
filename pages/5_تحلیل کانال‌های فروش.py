@@ -222,7 +222,7 @@ def main():
 
         ### date filter
         with col1:
-            st.subheader("انتخاب بازه زمانی : ")
+            st.subheader("انتخاب بازه زمانی تاریخ ایجاد معامله: ")
             config = Config(
                 always_open=True,
                 dark_mode=True,

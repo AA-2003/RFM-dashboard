@@ -235,7 +235,7 @@ def customer_analyze():
         # happy call filter
         happycall_status = st.checkbox("فقط مشتریانی که تماس هپی‌کال موفق داشته‌اند؟", value=False, key='happycall_status')
         if happycall_status:
-            happycall_value = 1
+            happycall_value = "(c.customer_nps IS NOT NULL OR  c.customer_amneties_score IS NOT NULL OR c.customer_staff_score IS NOT NULL)"
             cols = st.columns(2)
             with cols[0]:
                 nps_min = st.number_input("حداقل میانگین NPS", min_value=-100, max_value=100, value=-100, key='nps_min')
@@ -246,7 +246,7 @@ def customer_analyze():
                 cleanness_max = st.number_input("حداکثر میانگین امتیاز نظافت", min_value=0, max_value=5, value=5, key='cleanness_max')
                 personnel_max = st.number_input("حداکثر میانگین امتیاز پرسنل", min_value=0, max_value=5, value=5, key='personnel_max')
         else:
-            happycall_value = 0
+            happycall_value = ''
             nps_min = None
             nps_max = None
             cleanness_min = None
@@ -255,15 +255,15 @@ def customer_analyze():
             personnel_max = None
 
         # Build the happy call filter for the query
-        if happycall_value == 1:
+        if happycall_status:
             happycall_filter = f"""
-                AND c.happy_call_count >= {happycall_value}
+                AND {happycall_value}
                 AND c.customer_nps >= {nps_min} AND c.customer_nps <= {nps_max}
                 AND c.customer_amneties_score >= {cleanness_min} AND c.customer_amneties_score <= {cleanness_max}
                 AND c.customer_staff_score >= {personnel_min} AND c.customer_staff_score <= {personnel_max}
             """
         else:
-            # Only filter on happy_call_count = 0 (i.e., do not require happy call or scores)
+            # Only filter on happy_call_count  (i.e., do not require happy call or scores)
             happycall_filter = ""
 
         query = f"""
