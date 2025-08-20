@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 import sys
 from datetime import datetime, timedelta
@@ -20,7 +19,7 @@ def get_first_successful_deal_date(selected_channels):
     Fetches the first successful deal date for each customer from BigQuery, filtered by date and channels.
     Returns a DataFrame with columns: Customer_id, first_successful_deal_date, DealChannel
     """
-    query = f"""
+    query = """
         WITH first_deals AS (
             SELECT
                 Customer_id,
@@ -39,11 +38,13 @@ def get_first_successful_deal_date(selected_channels):
         WHERE rn = 1
     """
     result = exacute_query(query)
+    # Filter by selected channels if provided
     if selected_channels:
         result = result[result['DealChannel'].isin(selected_channels)]
     return result
 
 def pct_diff(new_val, old_val):
+    # Calculate percent difference, handle division by zero
     if old_val in [None, 0]:
         return None
     return f"{((new_val - old_val)/abs(old_val)*100):.2f}%"
@@ -51,14 +52,14 @@ def pct_diff(new_val, old_val):
 @st.cache_data(ttl=600, show_spinner=False)
 def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
                     end_date_str, horizontal=True) -> None:
-    # Calculate KPIs    
+    # Calculate main KPIs
     total_deals = len(deals)
     successful_deals = deals[deals['Status'] == 'Won']
     successful_deals_count = len(successful_deals)
     success_rate = (successful_deals_count / total_deals * 100) if total_deals > 0 else 0
     avg_deal_value = (deals['DealValue']/10).mean()  if not deals.empty else 0
 
-    # New and returning customers
+    # Calculate new and returning customers
     if not deals.empty:
         new_customers = df_first_deals[
             (df_first_deals['first_successful_deal_date'] >= start_date_str) &
@@ -69,14 +70,14 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
         new_customers = 0
         returning_customers = 0 
 
-    # Avg. Nights and Extention Rate
+    # Calculate average nights and extension rate
     avg_nights = deals['Nights'].mean() if 'Nights' in deals.columns and not deals.empty else 0
     if 'DealType' in deals.columns and not deals.empty:
         extention_rate = deals[deals['DealType']=='Renewal'].shape[0] / deals.shape[0] * 100
     else:
         extention_rate = 0
 
-    # Previous period KPIs
+    # Calculate previous period KPIs
     prev_total_deals = len(prev_deals)
     prev_successful_deals = prev_deals[prev_deals['Status'] == 'Won'] if not prev_deals.empty else []
     prev_successful_deals_count = len(prev_successful_deals)
@@ -89,7 +90,7 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
     else:
         prev_extention_rate = 0
 
-    # KPI Section
+    # KPI Section: Show metrics horizontally or vertically
     if horizontal:
         st.subheader("شاخص‌های کلیدی عملکرد (KPI)")
         colKPI1, colKPI2, colKPI3, colKPI4 = st.columns(4)
@@ -134,6 +135,7 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
             pct_diff(extention_rate, prev_extention_rate)
         )
     else:
+        # Show metrics vertically
         st.metric(
             "تعداد کل معاملات",
             f"{total_deals}",
@@ -174,9 +176,10 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
         )
         st.write('---')
 
-    # customers clusters
+    # Customer clusters (RFM segmentation)
     customer_ids = deals['Customer_id'].values.tolist()
     if customer_ids:
+        # Prepare customer IDs for SQL query
         customer_ids_list = ', '.join(str(int(id)) for id in customer_ids)
         cluster_query = f"""
             select * from `customerhealth-crm-warehouse.didar_data.RFM_segments`
@@ -184,9 +187,11 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
             """
         cluster_df = exacute_query(cluster_query)
         if not cluster_df.empty and 'rfm_segment' in cluster_df.columns:
+            # Count customers in each RFM segment
             segment_counts = cluster_df['rfm_segment'].value_counts().reset_index()
             segment_counts.columns = ['rfm_segment', 'count']
 
+            # Plot bar chart for RFM segments
             cluster_chart = px.bar(
                 segment_counts,
                 x='rfm_segment',
@@ -203,7 +208,7 @@ def channel_analysis(deals, prev_deals, df_first_deals, start_date_str,
         else:
             st.info("داده‌ای برای سگمنت مشتریان یافت نشد.")
 
-        # customers detials
+        # Show customer details
         st.subheader("جزئیات مشتریان")
         st.write(cluster_df)
         return cluster_df
@@ -216,11 +221,11 @@ def main():
     apply_custom_css()
     st.header("تحلیل کانال فروش")
     
-    # Check data availability and login first
+    # Check if user is authenticated
     if 'auth' in st.session_state and st.session_state.auth:    
         col1, _, col2, *_ = st.columns([5, 1, 5, 1, 1])
 
-        ### date filter
+        ### Date filter UI
         with col1:
             st.subheader("انتخاب بازه زمانی تاریخ ایجاد معامله: ")
             config = Config(
@@ -236,6 +241,7 @@ def main():
             )
             res = datepicker_component(config=config)
 
+            # If user selected a date, use it; otherwise, get min/max from DB
             if res and 'from' in res and res['from'] is not None:
                 start_date = res['from'].togregorian()
             else:
@@ -250,7 +256,7 @@ def main():
                 result = exacute_query(query)
                 end_date = result['max_deal_date'].iloc[0].date()
 
-        ### channels filter     
+        ### Channel filter UI
         with col2:
             channels_query = """
                 select DealChannel from `customerhealth-crm-warehouse.didar_data.deals`
@@ -305,7 +311,7 @@ def main():
                 st.warning('حداقل یک کانال فروش را انتخاب کنید!')
             match len(selected_channels):
                 case 1:
-                    # analysise on channel
+                    # Single channel analysis
                     cluster_df = channel_analysis(
                         deals, prev_deals, df_first_deals, start_date_str, end_date_str
                     )
@@ -328,7 +334,7 @@ def main():
                             )
 
                 case 2:
-                    # compare two channels
+                    # Compare two channels side by side
                     col1, col2 = st.columns(2)
                     channel1, channel2 = selected_channels
                     with col1:                        
@@ -384,7 +390,7 @@ def main():
                                     key=f"download_excel_{channel2}"
                                 )
 
-                # compare more than two channels
+                # Compare more than two channels
                 case _:
                     metrics = []
                     # Collect all unique customer_ids for all selected channels
@@ -404,12 +410,14 @@ def main():
                         channel_successful = channel_deals[channel_deals['Status'] == 'Won']
                         total_deals = len(channel_deals)
                         successful_deals = len(channel_successful)
+                        # Calculate average value for successful deals, handle empty
                         avg_value = channel_deals[channel_deals['Status'] == 'Won']['DealValue'].mean() / 10 if not channel_deals.empty else 0
                         total_value = channel_deals['DealValue'].sum() / 10 if not channel_deals.empty else 0
                         success_rate = (successful_deals / total_deals * 100) if total_deals > 0 else 0
+                        # Calculate renewal rate, handle division by zero
                         renewal_rate = len(channel_deals[channel_deals['DealType']=="Renewal"]) / successful_deals * 100 if successful_deals > 0 else 0
                         total_nights = channel_deals['Nights'].sum() if 'Nights' in channel_deals.columns and not channel_deals.empty else 0
-                        # New customers
+                        # New customers for this channel
                         if (
                             df_first_deals is not None
                             and not channel_deals.empty
@@ -425,7 +433,7 @@ def main():
                         else:
                             new_customers = 0
 
-                        # Get customer ids for this channel
+                        # Get RFM segment for this channel
                         customer_ids = channel_deals['Customer_id'].unique().tolist()
                         if customer_ids and not all_cluster_df.empty and 'rfm_segment' in all_cluster_df.columns:
                             channel_cluster_df = all_cluster_df[all_cluster_df['customer_id'].isin(customer_ids)]

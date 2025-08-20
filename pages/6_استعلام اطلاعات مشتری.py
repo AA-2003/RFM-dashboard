@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 import sys
 
-# Add path and imports
+# Add parent directory to sys.path for module imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.auth import login
@@ -12,16 +11,17 @@ from utils.load_data import exacute_query
 from utils.funcs import convert_df, convert_df_to_excel
 
 def main():
-    """Main function """
-    
+    """Main function for customer inquiry module"""
     st.set_page_config(page_title="سرچ مشتری", page_icon="📊", layout="wide")
     apply_custom_css()
     st.title("ماژول استعلام مشتری")
-    # Check data availability and login first
-    if 'auth'in st.session_state and st.session_state.auth: 
-        tabs = st.tabs(["جست‌و‌جو" , "آپلود"])
-        # search tab
-        with tabs[0]:   
+
+    # Check if user is authenticated
+    if 'auth' in st.session_state and st.session_state.auth:
+        tabs = st.tabs(["جست‌و‌جو", "آپلود"])
+
+        # --- Single customer search tab ---
+        with tabs[0]:
             with st.form(key='customer_inquiry_form'):
                 st.write("برای جستجوی مشتری، حداقل یکی از فیلدهای زیر را وارد کنید: ")
 
@@ -36,13 +36,14 @@ def main():
                 submit_inquiry = st.form_submit_button(label='جست‌وجو')
 
             if submit_inquiry:
+                # If all fields are empty, show error
                 if not input_last_name and not input_phone_number and not input_customer_id:
                     st.error("حداقل یکی از موارد را پر کنید.")
                 else:
-                    # Build filters safely and correctly
+                    # Build SQL WHERE filters based on user input
                     filters = []
                     if input_last_name:
-                        # Put the OR condition in parentheses
+                        # Search by last name or first name (OR condition)
                         filters.append(f"(Last_name LIKE '%{input_last_name}%' OR First_name LIKE '%{input_last_name}%')")
                     if input_phone_number:
                         filters.append(f"phone_number LIKE '%{input_phone_number}%'")
@@ -52,12 +53,13 @@ def main():
                             filters.append(f"customer_id = {customer_id_int}")
                         except ValueError:
                             st.error("کد مشتری باید عدد باشد.")
-                            filters.append("1=0")  # Prevent query if invalid
+                            filters.append("1=0")  # Prevent query if invalid input
 
                     # Always require last_name is not null or empty
                     filters.insert(0, "Last_name IS NOT NULL AND Last_name != ''")
                     where_clause = " AND ".join(filters)
 
+                    # Query RFM segments table with built filters
                     query = f"""
                         SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
                         WHERE {where_clause}
@@ -68,6 +70,7 @@ def main():
                     if rfm_data is None or rfm_data.empty:
                         st.info('هیچ مشتری با این مشخصات وجود ندارد!!!')
                     elif rfm_data.shape[0] > 20:
+                        # Too many results, ask for more specific input
                         st.info(f'{rfm_data.shape[0]} مشتری با این مشخصات پیدا شد!!! لطفا مشخصات دقیق‌تری ذکر کنید.')
                         st.write(rfm_data)
                         cols = st.columns(2)
@@ -77,53 +80,54 @@ def main():
                                 data=convert_df(rfm_data),
                                 file_name='rfm_segmentation_with_churn.csv',
                                 mime='text/csv',
-                                key=f"download_csv"
+                                key="download_csv"
                             )
-
                         with cols[1]:
                             st.download_button(
                                 label="دانلود داده‌ها به صورت اکسل",
                                 data=convert_df_to_excel(rfm_data),
                                 file_name='rfm_segmentation_with_churn.xlsx',
                                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                key=f"download_excel"
+                                key="download_excel"
                             )
-
                     else:
                         st.info(f'{rfm_data.shape[0]} مشتری با این مشخصات پیدا شد.')
+                        # Get unique customer IDs for further queries
                         ids = rfm_data['customer_id'].dropna().astype(int).unique().tolist()
 
+                        # Query deals for found customers
                         deals = exacute_query(f"""
-                                SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
-                                WHERE Customer_id IN ({', '.join(str(id) for id in ids)})
-                                """)
+                            SELECT * FROM `customerhealth-crm-warehouse.didar_data.deals`
+                            WHERE Customer_id IN ({', '.join(str(id) for id in ids)})
+                        """)
 
-                        # happy call 
+                        # Query happy call scenarios for found customers
                         happy_call_1 = exacute_query(f"""
                             SELECT * FROM `customerhealth-crm-warehouse.Surveys.happy_call_scenario_one`
                             WHERE Custmer_ID IN ({', '.join(str(id) for id in ids)})
                         """)
                         happy_call_2 = exacute_query(f"""
-                            SELECT *FROM `customerhealth-crm-warehouse.Surveys.happy_call_scenario_two`
+                            SELECT * FROM `customerhealth-crm-warehouse.Surveys.happy_call_scenario_two`
                             WHERE Custmer_ID IN ({', '.join(str(id) for id in ids)})
                         """)
                         happy_call_3 = exacute_query(f"""
                             SELECT * FROM `customerhealth-crm-warehouse.Surveys.happy_call_scenario_three`
                             WHERE Custmer_ID IN ({', '.join(str(id) for id in ids)})
                         """)
-                        # forms
+                        # Query forms for found customers
                         forms = exacute_query(f"""
-                                SELECT * FROM `customerhealth-crm-warehouse.didar_data.Forms`
-                                WHERE person_code IN ({', '.join(str(id) for id in ids)})
-                                """)
+                            SELECT * FROM `customerhealth-crm-warehouse.didar_data.Forms`
+                            WHERE person_code IN ({', '.join(str(id) for id in ids)})
+                        """)
 
+                        # Iterate over each found customer and display their info and history
                         for _, customer in rfm_data.iterrows():
                             st.markdown("---")
-                            # Display customer info in columns for better layout
+                            # Show customer info in three columns
                             info1, info2, info3 = st.columns([2, 2, 2])
                             with info1:
                                 st.markdown(f"**کد دیدار مشتری:**<br>{customer['customer_id']}", unsafe_allow_html=True)
-                                st.markdown(f"**نام:**<br>{customer['first_name'] if customer['first_name'] is not None else ''  } {customer['last_name']}", unsafe_allow_html=True)
+                                st.markdown(f"**نام:**<br>{customer['first_name'] if customer['first_name'] is not None else ''} {customer['last_name']}", unsafe_allow_html=True)
                                 st.markdown(f"**شماره همراه:**<br>{customer['phone_number']}", unsafe_allow_html=True)
                             with info2:
                                 st.markdown(f"**تازگی (Recency):**<br>{customer['recency']} روز", unsafe_allow_html=True)
@@ -132,13 +136,14 @@ def main():
                             with info3:
                                 st.markdown(f"**سگمنت RFM:**<br><span style='color:#2b9348;font-weight:bold'>{customer['rfm_segment']}</span>", unsafe_allow_html=True)
 
-                            # Show deals history in an expandable section
+                            # --- Deals history section ---
+                            # Filter deals for this customer
                             customer_deals = deals[deals['Customer_id'] == customer['customer_id']]
                             with st.expander("مشاهده سوابق معامله", expanded=not customer_deals.empty):
                                 if customer_deals.empty:
                                     st.info("سابقه معامله‌ای وجود ندارد.")
                                 else:
-                                    # Show only relevant columns and format
+                                    # Only show relevant columns if present
                                     show_cols = [
                                         col for col in [
                                             "DealID", "DealCreateDate", "DealValue", "Status", "DealChannel", "DealType", "Nights", "DealExpert"
@@ -153,10 +158,11 @@ def main():
                                         hide_index=True
                                     )
 
-                            # Show happy call records for this customer, each scenario in a separate table
+                            # --- Happy Call records section ---
                             with st.expander("مشاهده سوابق Happy Call", expanded=False):
                                 has_any_happy = False
                                 # Scenario 1
+                                # Filter happy call 1 for this customer
                                 customer_happy_call_1 = happy_call_1[happy_call_1['Custmer_ID'] == customer['customer_id']] if happy_call_1 is not None and not happy_call_1.empty else None
                                 if customer_happy_call_1 is not None and not customer_happy_call_1.empty:
                                     has_any_happy = True
@@ -201,7 +207,8 @@ def main():
                                 if not has_any_happy:
                                     st.info("هیچ رکورد Happy Call برای این مشتری وجود ندارد.")
 
-                            # Show forms records for this customer
+                            # --- Forms records section ---
+                            # Filter forms for this customer
                             customer_forms = forms[forms['person_code'] == customer['customer_id']] if forms is not None and not forms.empty else None
                             with st.expander("مشاهده سوابق فرم‌ها", expanded=False):
                                 if customer_forms is None or customer_forms.empty:
@@ -216,13 +223,13 @@ def main():
                                         use_container_width=True,
                                         hide_index=True
                                     )
-        
-        # Upload Excel or CSV file for batch customer search
+
+        # --- Batch customer search via file upload tab ---
         with tabs[1]:
             uploaded_file = st.file_uploader("آپلود فایل اکسل یا CSV", type=['xlsx', 'csv'])
             if uploaded_file is not None:
                 try:
-                    # Read uploaded file data
+                    # Read uploaded file as DataFrame
                     if uploaded_file.name.endswith('.csv'):
                         file_data = pd.read_csv(uploaded_file)
                     else:
@@ -231,11 +238,10 @@ def main():
                     st.success("فایل با موفقیت آپلود شد!")
                     st.write("ستون‌های موجود در فایل:", list(file_data.columns))
 
-                    selected_column = st.selectbox("ستون مورد نظر برای جستجو را انتخاب کنید", file_data.columns.values.tolist(  ))
-
+                    selected_column = st.selectbox("ستون مورد نظر برای جستجو را انتخاب کنید", file_data.columns.values.tolist())
                     column_type = st.radio("محتوای ستون انتخابی چیست؟", ["شماره تلفن", "نام", "کد مشتری"])
 
-                    # Load RFM data for comparison (in this tab, load data separately)
+                    # Load RFM data for comparison (separately for upload tab)
                     rfm_query = """
                         SELECT * FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
                         WHERE Last_name IS NOT NULL AND Last_name != ''
@@ -246,7 +252,7 @@ def main():
                         if rfm_data_upload is None or rfm_data_upload.empty:
                             st.error("داده‌های مشتری برای جستجو در دسترس نیست.")
                         else:
-                            # Search based on selected column type
+                            # Match uploaded file column with RFM data based on selected type
                             if column_type == "شماره تلفن":
                                 matching_results = rfm_data_upload[rfm_data_upload['phone_number'].astype(str).isin(file_data[selected_column].astype(str))]
                                 exists_mask = file_data[selected_column].astype(str).isin(rfm_data_upload['phone_number'].astype(str))
@@ -260,13 +266,13 @@ def main():
                                 matching_results = pd.DataFrame()
                                 exists_mask = pd.Series([False]*len(file_data))
 
-                            # Add existence status column
+                            # Add a column to indicate if the record exists in the dataset
                             file_data['وضعیت_در_دیتاست'] = exists_mask
 
                             existing_users = file_data[file_data['وضعیت_در_دیتاست']]
                             new_users = file_data[~file_data['وضعیت_در_دیتاست']]
 
-                            # Show existing customers
+                            # Show found customers
                             if not existing_users.empty:
                                 st.success(f"{len(existing_users)} مشتری موجود از فایل آپلود شده پیدا شد.")
                                 st.dataframe(matching_results, use_container_width=True)
@@ -280,6 +286,7 @@ def main():
                 except Exception as e:
                     st.error(f"خطا در پردازش فایل: {e}")
     else:
+        # If not authenticated, show login
         login()
 
 if __name__ == "__main__":

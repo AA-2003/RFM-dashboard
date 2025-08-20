@@ -6,7 +6,7 @@ import sys
 from streamlit_nej_datepicker import datepicker_component, Config
 import jdatetime
 
-# Add path and imports
+# Add parent directory to sys.path for custom imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.auth import login
@@ -14,23 +14,24 @@ from utils.load_data import exacute_query
 from utils.funcs import convert_df, convert_df_to_excel
 
 def to_sql_list(values):
+    # Convert a list of values to a SQL-friendly string for IN clause
     return ", ".join(f"'{v}'" for v in values)
 
 def main():
-    """Main function """
+    """Main function for the customer satisfaction dashboard"""
     st.set_page_config(page_title="هپی کال", page_icon="📊", layout="wide")
     apply_custom_css()
     st.title("رضایت مشتری ")
-    # Check data availability and login first
-    if 'auth'in st.session_state and st.session_state.auth:  
-        # filters
-        col1, _,col2, *_ = st.columns([5,1,5,1,1])
+    # Check authentication before showing the dashboard
+    if 'auth' in st.session_state and st.session_state.auth:  
+        # Layout for filters
+        col1, _, col2, *_ = st.columns([5,1,5,1,1])
 
-        ### date filter
+        ### Date filter (complex: fetch min date from DB and use custom Persian datepicker)
         with col1:
-            query = f"""
+            query = """
                 SELECT 
-                    MIN(Checkout) AS min_date, 
+                    MIN(Checkout) AS min_date
                 FROM `customerhealth-crm-warehouse.didar_data.deals`
                 WHERE DATE_DIFF(CAST(Checkout AS DATE), CAST(Checkin_date AS DATE), DAY) = Nights
                 AND Status = 'Won'
@@ -40,7 +41,7 @@ def main():
 
             st.subheader("انتخاب بازه زمانی تاریخ خروج: ")
             config = Config(
-                always_open = True,
+                always_open=True,
                 dark_mode=True,
                 locale="fa",
                 minimum_date=min_date,
@@ -53,6 +54,7 @@ def main():
             )
             res = datepicker_component(config=config)
 
+            # Convert selected Jalali dates to Gregorian, fallback to min/max if not selected
             if res and 'from' in res and res['from'] is not None:
                 start_date = res['from'].togregorian()
             else:
@@ -64,28 +66,30 @@ def main():
                 end_date = jdatetime.date.today().togregorian()
                 
         with col2: 
+            # VIP status filter
             vip_options = ['Non-VIP', 'Bronze VIP', 'Silver VIP', 'Gold VIP']
             vip_status = st.checkbox("انتخاب تمام وضعیت‌های VIP", value=True, key='vips_checkbox')
             if vip_status:
                 vip_values = vip_options
             else:
                 vip_values = st.multiselect(
-                "انتخاب وضعیت VIP:",
+                    "انتخاب وضعیت VIP:",
                     options=vip_options,
                     default=[],  
                     key='vips_multiselect_selectbox'
                 )
-            
             if vip_values == []:
                 vip_values = vip_options
 
-            # segmentation filter
-            semention_options = ['At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
-                                'At Risk 💰 Big Spender', 'At Risk 🔒 Reliable Customers', 'At Risk �️️ Low Value',
-                                'At Risk 🧐 Curious Customers', 'Lost ✨ Potential', 'Lost ❤️ Loyal Customers',
-                                'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
-                                'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
-                                '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers']
+            # Segmentation filter (customer segments)
+            semention_options = [
+                'At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
+                'At Risk 💰 Big Spender', 'At Risk 🔒 Reliable Customers', 'At Risk �️️ Low Value',
+                'At Risk 🧐 Curious Customers', 'Lost ✨ Potential', 'Lost ❤️ Loyal Customers',
+                'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
+                'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
+                '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers'
+            ]
             segment_status = st.checkbox("انتخاب تمام سگمنت ها", value=True, key='segments_checkbox')
             if segment_status:
                 segment_values = semention_options
@@ -99,28 +103,31 @@ def main():
             if segment_values == []:
                 segment_values = semention_options
         
-            # tip filter  
+            # Tip filter (complex: filter by building and then by tip/product)
             products = exacute_query("""
-                        SELECT * fROM `customerhealth-crm-warehouse.didar_data.Products`
-                        """)
+                SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`
+            """)
             complex_options = [b for b in products['Building_name'].unique().tolist() if b != 'not_a_building']
-            tip_options =  products[products['Building_name']!='not_a_building']['ProductName'].unique().tolist() 
+            tip_options = products[products['Building_name'] != 'not_a_building']['ProductName'].unique().tolist() 
     
             complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
             if complex_status:
                 tip_values = tip_options
             else:
                 complex_values = st.multiselect(
-                        "انتخاب مجتمع :",
-                        options=complex_options,
-                        default=[],  # empty if user doesn’t pick
-                        key='complex_multiselect_selectbox'
-                    )
+                    "انتخاب مجتمع :",
+                    options=complex_options,
+                    default=[],  # empty if user doesn’t pick
+                    key='complex_multiselect_selectbox'
+                )
                 cols = st.columns([1, 4])
 
                 with cols[1]:
-                    tip_options = products[(products['Building_name']!='not_a_building')&
-                                            (products['Building_name'].isin(complex_values))]['ProductName'].unique().tolist()
+                    # Filter tip options based on selected complexes
+                    tip_options = products[
+                        (products['Building_name'] != 'not_a_building') &
+                        (products['Building_name'].isin(complex_values))
+                    ]['ProductName'].unique().tolist()
                     tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
                     if tip_status:
                         tip_values = tip_options
@@ -134,7 +141,7 @@ def main():
                     if tip_values == []:
                         tip_values = tip_options
 
-            # monthly filter
+            # Monthly/Non-monthly filter (complex: also set minimum nights for monthly)
             montly_status = st.checkbox("ماهانه و غیرماهانه", value=True, key='monthly_checkbox')
             if montly_status:
                 montly_values = ["ماهانه", "غیر ماهانه"]
@@ -145,17 +152,17 @@ def main():
                     options=["ماهانه", "غیر ماهانه"],
                     key='monthly_multiselect_selectbox'
                 )
-                monthly_limit  = st.number_input(
-                        "مینیمم میانگین اقامت برای اینکه مهمان ماهانه محسوب شود را وارد کنید:",
-                        min_value=0, value=15, step=1, key='min_nights_filter'
-                    )
+                monthly_limit = st.number_input(
+                    "مینیمم میانگین اقامت برای اینکه مهمان ماهانه محسوب شود را وارد کنید:",
+                    min_value=0, value=15, step=1, key='min_nights_filter'
+                )
 
             if montly_values == []:
                 montly_values = ["ماهانه", "غیر ماهانه"]
             elif len(montly_values) != 2:
                 montly_values = list([montly_values])
             
-            # Comment
+            # Comment filter (complex: show sub-filters for comment types)
             comment_filter = st.checkbox(
                 "فقط نظرسنجی‌هایی که کامنت دارند؟",
                 key='comment_filter_checkbox'
@@ -168,35 +175,37 @@ def main():
                     staff_comment = st.checkbox('نظرسنجی‌هایی که کامنت در مورد پرسنل دارند؟', key='staff_checkbox')
                     amneties_comment = st.checkbox('نظرسنجی‌هایی که کامنت در مورد امکانات دارند؟', key='amneties_checkbox')
 
-
+        # Main calculation and data retrieval
         if st.button("محاسبه و نمایش", key='calculate_button'):
+            # 1. Get customer IDs matching all filters (complex: monthly, VIP, segment)
             customer_ids_query = f"""
-            SELECT customer_id
-            FROM (
-                SELECT *,
-                    CASE
-                        WHEN (total_nights / frequency) >= {monthly_limit} THEN "ماهانه"
-                        ELSE "غیر ماهانه"
-                    END AS monthly_status,
-                    CASE
-                        WHEN last_name LIKE '%💎%' THEN 'Gold VIP'
-                        WHEN last_name LIKE '%⭐%' THEN 'Silver VIP'
-                        WHEN last_name LIKE '%💠%' THEN 'Bronze VIP'
-                        ELSE 'Non-VIP'
-                    END AS vip_status
-                FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
-                WHERE rfm_segment IN ({to_sql_list(segment_values)})
-            ) t
-            WHERE vip_status IN ({to_sql_list(vip_values)})
-                AND monthly_status IN ({to_sql_list(montly_values)})
+                SELECT customer_id
+                FROM (
+                    SELECT *,
+                        CASE
+                            WHEN (total_nights / frequency) >= {monthly_limit} THEN "ماهانه"
+                            ELSE "غیر ماهانه"
+                        END AS monthly_status,
+                        CASE
+                            WHEN last_name LIKE '%💎%' THEN 'Gold VIP'
+                            WHEN last_name LIKE '%⭐%' THEN 'Silver VIP'
+                            WHEN last_name LIKE '%💠%' THEN 'Bronze VIP'
+                            ELSE 'Non-VIP'
+                        END AS vip_status
+                    FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
+                    WHERE rfm_segment IN ({to_sql_list(segment_values)})
+                ) t
+                WHERE vip_status IN ({to_sql_list(vip_values)})
+                  AND monthly_status IN ({to_sql_list(montly_values)})
             """
             ids = exacute_query(customer_ids_query)
             customer_ids = ids['customer_id'].dropna().unique().tolist()
             ids_list_sql = ', '.join(str(int(i)) for i in customer_ids)
 
+            # 2. Get deal IDs for those customers, filtered by tip, date, etc.
             deals_query = f"""
                 SELECT 
-                    d.DealId,
+                    d.DealId
                 FROM `customerhealth-crm-warehouse.didar_data.deals` d
                 JOIN `customerhealth-crm-warehouse.didar_data.Products` p
                     ON d.Product_code = p.ProductCode
@@ -208,10 +217,9 @@ def main():
             """
             deals_ids = exacute_query(deals_query)
 
-            # Initialize filter strings
+            # 3. Prepare comment filters for different scenarios (complex: different logic for scenario 1/2 vs 3)
             one_two = ""
             three = ""
-
             if comment_filter:
                 one_two = 'AND comment IS NOT NULL '
                 three = 'AND (open_comment IS NOT NULL OR NPS_raw_comment IS NOT NULL OR staff_comment IS NOT NULL OR amneties_comment IS NOT NULL OR cleanliness_comment IS NOT NULL) '
@@ -228,7 +236,7 @@ def main():
                     one_two += "AND amneties_score < 3 "
                     three += "AND amneties_comment IS NOT NULL "
 
-            # happy call 
+            # 4. Query happy call survey data for all three scenarios (complex: different schemas)
             deal_ids_str = ','.join(str(id) for id in deals_ids['DealId'].unique().tolist())
             happy_call_1 = exacute_query(f"""
                 SELECT * FROM `customerhealth-crm-warehouse.Surveys.happy_call_scenario_one`
@@ -249,7 +257,7 @@ def main():
                 {three}
             """)
 
-            # Combine all data for overall metrics
+            # 5. Combine all scenarios into a single DataFrame (complex: schemas may differ)
             happy_calls = []
             for df in [happy_call_1, happy_call_2, happy_call_3]:
                 if df is not None and not df.empty:
@@ -260,8 +268,7 @@ def main():
                 all_calls = pd.DataFrame()
 
             if not all_calls.empty:
-                # Standardize column names across all scenarios
-                # Define mapping from each scenario's columns to a unified schema
+                # 6. Standardize column names and fill missing columns (complex: mapping and harmonization)
                 column_map = {
                     # Common columns
                     'Caller_name': 'Caller_name',
@@ -296,7 +303,7 @@ def main():
                     'survey_id': 'survey_id'
                 }
 
-                # First, ensure all expected columns exist (fill missing with NaN)
+                # Ensure all expected columns exist (fill missing with NaN)
                 for col in column_map.values():
                     if col not in all_calls.columns:
                         all_calls[col] = np.nan
@@ -305,7 +312,7 @@ def main():
                 if 'hamcall_comments' in all_calls.columns and 'hamcall_comment' not in all_calls.columns:
                     all_calls['hamcall_comment'] = all_calls['hamcall_comments']
 
-                # Create a unified 'نظر مشتری' (customer comment) column
+                # 7. Create a unified customer comment column (complex: merge all possible comment fields)
                 def combine_comments(row):
                     comments = []
                     # Scenario 1/2
@@ -319,7 +326,7 @@ def main():
 
                 all_calls['customer_comment'] = all_calls.apply(combine_comments, axis=1)
 
-                # Filter for valid rows
+                # 8. Filter for valid rows (complex: require all key fields to be present)
                 all_calls = all_calls[
                     (all_calls['first_call_date'].notna()) &
                     (all_calls['first_call_result'].notna()) &
@@ -328,14 +335,14 @@ def main():
                     (all_calls['Deal_ID'].notna())
                 ].reset_index(drop=True).copy()
 
-                # Number of calls (number of unique Deal_IDs)
+                # 9. Calculate metrics (number of calls, success rate, averages)
                 num_calls = all_calls[all_calls['first_call_result'].notna()].shape[0]
 
-                # Success rate: percent of calls with successful result
+                # Success rate: percent of calls with successful result (complex: check both first and second call)
                 def is_success(row):
                     first = str(row.get('first_call_result', '')).strip()
                     second = str(row.get('second_call_result', '')).strip()
-                    return (first == 'Successful_call') or (second == 'Successful_call')
+                    return (first.lower() == 'successful_call') or (second.lower() == 'successful_call')
 
                 all_calls['success'] = all_calls.apply(is_success, axis=1)
                 success_rate = all_calls['success'].mean() * 100 if len(all_calls) > 0 else np.nan
@@ -349,7 +356,7 @@ def main():
                 # Average staff score
                 avg_staff = all_calls['staff_score'].mean() if 'staff_score' in all_calls else np.nan
 
-                # Show metrics
+                # 10. Show metrics in dashboard
                 col1, col2, col3, col4, col5 = st.columns(5)
                 col1.metric("تعداد تماس‌ها", f"{num_calls:,}")
                 col2.metric("درصد موفقیت تماس", f"{success_rate:.1f}٪" if not np.isnan(success_rate) else "-")
@@ -357,7 +364,7 @@ def main():
                 col4.metric("میانگین نظافت", f"{avg_cleanliness:.2f}" if not np.isnan(avg_cleanliness) else "-")
                 col5.metric("میانگین پرسنل", f"{avg_staff:.2f}" if not np.isnan(avg_staff) else "-")
 
-                # تعریف دیکشنری نگاشت نام ستون‌ها به فارسی (Persian column names)
+                # Persian column names for display
                 column_rename_dict = {
                     'survey_id': 'شناسه نظرسنجی',
                     'Caller_name': 'نام تماس‌گیرنده',
@@ -393,13 +400,11 @@ def main():
                 # Select columns to display (in a logical order)
                 display_columns = [
                     'Caller_name', 'Deal_ID', 'Customer_name', 'Phone_number',
-                    'checkout_date', 'first_call_date', 'first_call_result',
-                    'second_call_date', 'second_call_result',
-                    'staff_score', 'cleanliness_score', 'amneties_score', 'NPS_raw_score',
-                    'customer_comment', 'success'
+                    'checkout_date', 'staff_score', 'cleanliness_score', 'amneties_score',
+                    'NPS_raw_score', 'customer_comment'
                 ]
 
-                # Only keep columns that exist
+                # Only keep columns that exist in the DataFrame
                 display_columns = [col for col in display_columns if col in all_calls.columns]
 
                 all_calls_fa = all_calls[display_columns].rename(columns=column_rename_dict)

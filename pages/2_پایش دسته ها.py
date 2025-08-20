@@ -12,16 +12,15 @@ from utils.auth import login
 from utils.load_data import exacute_queries, exacute_query
 from utils.funcs import convert_df, convert_df_to_excel
 
-
 def main():
     st.set_page_config(page_title="تحلیل زمانی", page_icon="📊", layout="wide")
     apply_custom_css()
-    st.subheader(" توزیع بخش‌بندی مشتریان در طول زمان")    
+    st.subheader("توزیع بخش‌بندی مشتریان در طول زمان")
 
-    if 'auth'in st.session_state and st.session_state.auth:    
-        # Instead of loading all data, fetch only the aggregated data needed for the plot directly from the database.
+    if 'auth' in st.session_state and st.session_state.auth:
+        # Aggregate segment data for plotting, cache in session state
+        #  This block loads and normalizes segment counts for each time period, caching the result for performance.
         if 'rfms_segment_normalized' not in st.session_state:
-            # Compose a single query to get counts per segment per period, excluding 'Lost' and 'Risk'
             query = """
             WITH all_segments AS (
                 SELECT customer_id, rfm_segment, '1-this month' AS quarter FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
@@ -43,51 +42,43 @@ def main():
             GROUP BY quarter, rfm_segment
             """
             segment_counts = exacute_queries([query])[0]
-
-            # Compute total customers per quarter
+            #  Calculate total customers per quarter for normalization
             total_per_quarter = segment_counts.groupby('quarter')['count'].sum().reset_index()
             total_per_quarter.rename(columns={'count': 'total'}, inplace=True)
-
-            # Merge and compute normalized percentage
+            #  Merge to get normalized percentage per segment per quarter
             segment_normalized = pd.merge(segment_counts, total_per_quarter, on='quarter')
             segment_normalized['percentage'] = segment_normalized['count'] / segment_normalized['total']
             segment_normalized = segment_normalized.sort_values(by='quarter', ascending=False)
-
             st.session_state['rfms_segment_normalized'] = segment_normalized
         else:
             segment_normalized = st.session_state['rfms_segment_normalized'].copy()
 
-
         if segment_normalized is None or segment_normalized.empty:
             st.info("مشکلی در بارگذاری داده ها پیش امده است!!")
         else:
-            # Select box for user to choose between real number or normalized
+            #  User can choose to plot absolute count or normalized percentage
             y_axis_option = st.selectbox(
                 "نمایش بر اساس:",
                 options=["تعداد", "نرمال شده"],
                 index=1
             )
+            y_col = 'count' if y_axis_option == "تعداد" else 'percentage'
+            y_title = 'تعداد مشتریان' if y_axis_option == "تعداد" else 'درصد مشتریان'
 
-            if y_axis_option == "تعداد":
-                y_col = 'count'
-                y_title = 'تعداد مشتریان'
-            else:
-                y_col = 'percentage'
-                y_title = 'درصد مشتریان'
-
+            #  Plot line chart of segment distribution over time
             fig = px.line(
                 segment_normalized,
                 x='quarter',
                 y=y_col,
                 color='rfm_segment',
                 markers=True,
-                color_discrete_sequence=px.colors.qualitative.Set3 
+                color_discrete_sequence=px.colors.qualitative.Set3
             )
             fig.update_layout(
                 title={
                     'text': 'تغییرات  در طول زمان',
-                    'x': 1,  
-                    'xanchor': 'right',  
+                    'x': 1,
+                    'xanchor': 'right',
                     'yanchor': 'top'
                 },
                 xaxis_title='دوره',
@@ -95,10 +86,10 @@ def main():
                 legend_title='RFM Segment'
             )
             st.plotly_chart(fig)
-        
+
         st.write('---')
         st.subheader('بررسی تغییر یک سگمنت در طول زمان')
-        # Create two filters for period and segment selection for comparison
+
         months = ['این ماه', 'سه ماه پیش', 'شش ماه پیش', 'نه ماه پیش', 'دوازده ماه پیش']
         segments = [
             'At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
@@ -109,7 +100,6 @@ def main():
             '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers'
         ]
         cols = st.columns([2, 2])
-
         with cols[0]:
             period1 = st.selectbox("دوره اول را انتخاب کنید:", months, key="period1")
             segment1 = st.selectbox("سگمنت اول را انتخاب کنید:", segments, key="segment1")
@@ -117,7 +107,7 @@ def main():
             period2 = st.selectbox("دوره دوم را انتخاب کنید:", months, key="period2")
             segment2 = st.selectbox("سگمنت دوم را انتخاب کنید:", ['All'] + segments, key="segment2")
 
-        # Map period to rfms index and to a numeric order for comparison
+        #  Map Persian period names to BigQuery table names and order
         period_map = {
             'این ماه': 'customerhealth-crm-warehouse.didar_data.RFM_segments',
             'سه ماه پیش': 'customerhealth-crm-warehouse.didar_data.RFM_segments_three_months_before',
@@ -133,51 +123,51 @@ def main():
             'دوازده ماه پیش': 4
         }
 
-        if st.button("اجرا", key='calculate_button'):            
-            print(period_map.get(period1, 0), period_map.get(period2, 0))
+        if st.button("اجرا", key='calculate_button'):
+            #  Ensure period1 is before period2 (lower number means more recent)
             if period_number_map.get(period1, -1) <= period_number_map.get(period2, -1):
                 st.warning("دوره اول باید قبل از دوره دوم باشد")
             else:
-                if segment2 == 'All':
-                    segment2 = segments
-                
+                #  If 'All' is selected, compare to all segments in period2
+                selected_segments2 = segments if segment2 == 'All' else segment2
                 rfm_id_1 = period_map.get(period1)
                 rfm_id_2 = period_map.get(period2)
-
+                #  Get customer IDs in period1 with selected segment1
                 ids_query = f"""
-                            SELECT customer_id, rfm_segment FROM `{rfm_id_1}`
-                            WHERE rfm_segment = '{segment1}'
-                            """
+                    SELECT customer_id, rfm_segment FROM `{rfm_id_1}`
+                    WHERE rfm_segment = '{segment1}'
+                """
                 ids = exacute_query(ids_query)
                 if ids is None or ids.empty:
                     st.info("مشکلی در بارگذاری داده ها پیش آمده است!!!")
                     return
 
-                # Distribution of those customers in period 2 by their segment
+                #  Prepare SQL list of customer IDs for next query
                 id_list_sql = ', '.join(str(i) for i in ids['customer_id'].values.tolist())
-                if isinstance(segment2, str):
+                if isinstance(selected_segments2, str):
+                    #  Query for a single segment in period2
                     df2_query = f"""
-                            SELECT * FROM `{rfm_id_2}`
-                            WHERE rfm_segment = '{segment2}'
-                            AND customer_id IN ({id_list_sql})
-                            """
+                        SELECT * FROM `{rfm_id_2}`
+                        WHERE rfm_segment = '{selected_segments2}'
+                        AND customer_id IN ({id_list_sql})
+                    """
                 else:
-                    segments2 = ', '.join(f"'{i}'" for i in segment2)
+                    #  Query for all segments in period2
+                    segments2 = ', '.join(f"'{i}'" for i in selected_segments2)
                     df2_query = f"""
-                            SELECT * FROM `{rfm_id_2}`
-                            WHERE rfm_segment IN ({segments2})
-                            AND customer_id IN ({id_list_sql})
+                        SELECT * FROM `{rfm_id_2}`
+                        WHERE rfm_segment IN ({segments2})
+                        AND customer_id IN ({id_list_sql})
                     """
                 df2 = exacute_query(df2_query)
-
                 if df2 is None or df2.empty:
                     st.info("مشکلی در بارگذاری داده ها پیش آمده است!!!")
                     return
-                seg2_dist = df2['rfm_segment'].value_counts().reset_index()
 
+                #  Calculate distribution of segments in period2 for selected customers
+                seg2_dist = df2['rfm_segment'].value_counts().reset_index()
                 seg2_dist.columns = ['rfm_segment', 'count']
 
-                # Plot bar chart for period 2
                 st.subheader("توزیع سگمنت مشتریان انتخابی در دوره دوم")
                 fig2 = px.bar(
                     seg2_dist,
@@ -189,9 +179,13 @@ def main():
                 )
                 fig2.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
                 st.plotly_chart(fig2, use_container_width=True)
-                data = pd.merge(df2, ids[ids['rfm_segment'] == segment1][['customer_id', 'rfm_segment']], on="customer_id")
 
-                # change columns names
+                #  Merge period1 and period2 data for selected customers for display
+                data = pd.merge(
+                    df2,
+                    ids[ids['rfm_segment'] == segment1][['customer_id', 'rfm_segment']],
+                    on="customer_id"
+                )
                 data = data.rename(columns={
                     'customer_id': 'شناسه مشتری',
                     'first_name': 'نام',
@@ -213,6 +207,7 @@ def main():
 
         st.write('---')
 
+        #  Join RFM segments with CHS scores for current month to show average scores per segment
         merged_df = exacute_query("""
             SELECT 
                 rfm.customer_id, 
@@ -225,6 +220,7 @@ def main():
                 ON rfm.customer_id = chs.Customer_ID
         """)
 
+        #  Aggregate mean scores and count of surveys per segment
         agg_scores = merged_df.groupby('rfm_segment').agg(
             تعداد_نظرسنجی=('customer_nps', 'count'),
             میانگین_NPS=('customer_nps', 'mean'),
@@ -242,7 +238,6 @@ def main():
                 file_name='rfm_segmentation_with_churn.csv',
                 mime='text/csv',
             )
-
         with col2:
             st.download_button(
                 label="دانلود داده‌ها به صورت اکسل",
@@ -252,5 +247,6 @@ def main():
             )
     else:
         login()
+
 if __name__ == "__main__":
     main()

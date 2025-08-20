@@ -5,7 +5,7 @@ import plotly.express as px
 from streamlit_nej_datepicker import datepicker_component, Config
 import jdatetime
 
-# Add path and imports
+# Add parent directory to sys.path for module imports
 sys.path.append(os.path.abspath(".."))
 from utils.custom_css import apply_custom_css
 from utils.load_data import exacute_query
@@ -13,6 +13,7 @@ from utils.auth import login
 from utils.funcs import convert_df, convert_df_to_excel
 
 def to_sql_list(values):
+    # Convert Python list to SQL string list for IN clause
     return ", ".join(f"'{v}'" for v in values)
 
 def main():
@@ -20,11 +21,11 @@ def main():
     apply_custom_css()
     st.subheader("تحلیل سبد خرید مشتری ")    
 
-    # Check data availability and login first
+    # Check if user is authenticated
     if 'auth' in st.session_state and st.session_state.auth:  
-        col1, _,col2, *_ = st.columns([5,1,5,1,1])
+        col1, _, col2, *_ = st.columns([5,1,5,1,1])
 
-        ### date filter
+        ### Date filter UI
         with col1:
             st.subheader("انتخاب بازه زمانی تاریخ ایجاد معامله: ")
             config = Config(
@@ -40,6 +41,7 @@ def main():
             )
             res = datepicker_component(config=config)
 
+            # If user selected a start date, use it, else get min date from DB
             if res and 'from' in res and res['from'] is not None:
                 start_date = res['from'].togregorian()
             else:
@@ -47,6 +49,7 @@ def main():
                 result = exacute_query(query)
                 start_date = result['min_deal_date'].iloc[0].date()
 
+            # If user selected an end date, use it, else get max date from DB
             if res and 'to' in res and res['to'] is not None:
                 end_date = res['to'].togregorian()
             else:
@@ -55,22 +58,22 @@ def main():
                 end_date = result['max_deal_date'].iloc[0].date()
                 
         with col2: 
+            # VIP status filter
             vip_options = ['Non-VIP', 'Bronze VIP', 'Silver VIP', 'Gold VIP']
             vip_status = st.checkbox("انتخاب تمام وضعیت‌هایVIP", value=True, key='vips_checkbox')
             if vip_status:
                 vip_values = vip_options
             else:
                 vip_values = st.multiselect(
-                "انتخاب وضعیت VIP:",
+                    "انتخاب وضعیت VIP:",
                     options=vip_options,
                     default=[],  
                     key='vips_multiselect_selectbox'
                 )
-            
             if vip_values == []:
                 vip_values = vip_options
 
-            # blacklist filter
+            # Blacklist filter
             blacklist_options = ['non-blacklist', 'blacklist']
             black_list_status = st.checkbox("انتخاب تمام وضعیت‌های بلک لیست", value=True, key='blacklists_checkbox')
             if black_list_status:
@@ -84,13 +87,15 @@ def main():
             if black_list_values == []:
                 black_list_values = blacklist_options
 
-            # segmentation filter
-            semention_options = ['At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
-                                'At Risk 💰 Big Spender', 'At Risk 🔒 Reliable Customers', 'At Risk �️️ Low Value',
-                                'At Risk 🧐 Curious Customers', 'Lost ✨ Potential', 'Lost ❤️ Loyal Customers',
-                                'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
-                                'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
-                                '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers']
+            # Segmentation filter
+            semention_options = [
+                'At Risk ✨ Potential', 'At Risk ❤️ Loyal Customers', 'At Risk 👑 Champions',
+                'At Risk 💰 Big Spender', 'At Risk 🔒 Reliable Customers', 'At Risk �️️ Low Value',
+                'At Risk 🧐 Curious Customers', 'Lost ✨ Potential', 'Lost ❤️ Loyal Customers',
+                'Lost 👑 Champions', 'Lost 💰 Big Spender', 'Lost 🔒 Reliable Customers', 'Lost 🗑️ Low Value',
+                'Lost 🧐 Curious Customers', 'New 🧐 Curious Customers',  '✨ Potential', '❤️ Loyal Customers',
+                '👑 Champions', '💰 Big Spender', '🔒 Reliable Customers', '🗑️ Low Value', '🧐 Curious Customers'
+            ]
             segment_status = st.checkbox("انتخاب تمام سگمنت ها", value=True, key='segments_checkbox')
             if segment_status:
                 segment_values = semention_options
@@ -104,28 +109,34 @@ def main():
             if segment_values == []:
                 segment_values = semention_options
         
-            # tip filter  
+            # Tip (Product type) and Complex (Building) filter
             products = exacute_query("""
-                        SELECT * fROM `customerhealth-crm-warehouse.didar_data.Products`
-                        """)
+                SELECT * fROM `customerhealth-crm-warehouse.didar_data.Products`
+            """)
+            # List of complexes (buildings) except 'not_a_building'
             complex_options = [b for b in products['Building_name'].unique().tolist() if b != 'not_a_building']
-            tip_options =  products[products['Building_name']!='not_a_building']['ProductName'].unique().tolist() 
+            # List of tips (product names) for valid buildings
+            tip_options = products[products['Building_name']!='not_a_building']['ProductName'].unique().tolist() 
     
             complex_status = st.checkbox("انتخاب تمام مجتمع ها ", value=True, key='complex_checkbox')
             if complex_status:
                 tip_values = tip_options
             else:
+                # User selects one or more complexes
                 complex_values = st.multiselect(
-                        "انتخاب مجتمع :",
-                        options=complex_options,
-                        default=[],  # empty if user doesn’t pick
-                        key='complex_multiselect_selectbox'
-                    )
+                    "انتخاب مجتمع :",
+                    options=complex_options,
+                    default=[],  # empty if user doesn’t pick
+                    key='complex_multiselect_selectbox'
+                )
                 cols = st.columns([1, 4])
 
                 with cols[1]:
-                    tip_options = products[(products['Building_name']!='not_a_building')&
-                                            (products['Building_name'].isin(complex_values))]['ProductName'].unique().tolist()
+                    # Filter tips based on selected complexes
+                    tip_options = products[
+                        (products['Building_name']!='not_a_building') &
+                        (products['Building_name'].isin(complex_values))
+                    ]['ProductName'].unique().tolist()
                     tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='tips_checkbox')
                     if tip_status:
                         tip_values = tip_options
@@ -139,7 +150,7 @@ def main():
                     if tip_values == []:
                         tip_values = tip_options
 
-            # monthly filter
+            # Monthly/Non-monthly filter
             montly_status = st.checkbox("ماهانه و غیرماهانه", value=True, key='monthly_checkbox')
             if montly_status:
                 montly_values = ["ماهانه", "غیر ماهانه"]
@@ -151,16 +162,16 @@ def main():
                     key='monthly_multiselect_selectbox'
                 )
                 monthly_limit  = st.number_input(
-                        "مینیمم میانگین اقامت برای اینکه مهمان ماهانه محسوب شود را وارد کنید:",
-                        min_value=0, value=15, step=1, key='min_nights_filter'
-                    )
+                    "مینیمم میانگین اقامت برای اینکه مهمان ماهانه محسوب شود را وارد کنید:",
+                    min_value=0, value=15, step=1, key='min_nights_filter'
+                )
 
             if montly_values == []:
                 montly_values = ["ماهانه", "غیر ماهانه"]
             elif len(montly_values) != 2:
                 montly_values = list([montly_values])
             
-            # Is staying
+            # Is staying filter (resident or not)
             is_staying = st.checkbox('هم مقیم و هم غیرمقیم', value=True, key='is_staying_checkbox')
             if is_staying:
                 is_staying_values = ["مقیم","غیر مقیم"]
@@ -175,9 +186,11 @@ def main():
             elif len(is_staying_values) != 2:
                 is_staying_values = list([is_staying_values])
 
+        # Format dates for SQL
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
 
+        # Build SQL query for customer filtering based on all selected filters
         query = f"""
         SELECT *
         FROM (
@@ -211,11 +224,12 @@ def main():
         """
         
         if st.button("محاسبه و نمایش", key='calculate_button'):
+            # Get filtered customer IDs
             ids = exacute_query(query)
             customer_ids = ids['customer_id'].dropna().unique().tolist()
             id_list_sql = ', '.join(str(int(i)) for i in customer_ids)
 
-            # Mapping quality_rank to Persian label
+            # SQL CASE for mapping quality_rank to Persian label
             quality_case = """
                 CASE
                     WHEN p.quality_rank = 1 THEN 'اکونومی'
@@ -229,7 +243,7 @@ def main():
             # Only include selected tip_values in the query
             tip_values_sql = ', '.join([f"'{v}'" for v in tip_values])
 
-            # Query: join deals and products, filter by customer and tip, map complex, region, and quality, but NO aggregation in SQL
+            # Main aggregation query: join deals and products, filter by customer, tip, date, etc.
             agg_query = f"""
                 SELECT 
                     d.Customer_id,
@@ -254,15 +268,15 @@ def main():
             if agg_df is None or agg_df.empty:
                 st.warning("هیچ معامله‌ای با فیلترهای اعمال شده پیدا نشد!!!")
             else:
-                # Aggregate in pandas
-                agg_df['Frequency'] = 1  # Each row is a deal
+                # Add Frequency column: each row is a deal, so frequency=1
+                agg_df['Frequency'] = 1
 
-                # Determine if only one complex is selected
+                # Check if only one complex is selected (for tip-level grouping)
                 unique_complexes = agg_df['complex'].dropna().unique()
                 single_complex_selected = len(unique_complexes) == 1
 
                 if single_complex_selected:
-                    # If only one complex is selected, group by tip (ProductName) instead of complex
+                    # If only one complex, group by tip (ProductName)
                     # Frequency by tip
                     plot_df = agg_df.groupby('tip', as_index=False).agg({'Frequency': 'sum'})
                     plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
@@ -299,9 +313,11 @@ def main():
                         labels={'tip': 'تیپ', 'DealValue': 'ارزش کل معاملات'},
                         text='DealValue_fmt'
                     )
-                    fig_monetary.update_traces(textposition='outside',
-                                               texttemplate='%{customdata}',
-                                               customdata=plot_monetary_df[['DealValue_fmt']])
+                    fig_monetary.update_traces(
+                        textposition='outside',
+                        texttemplate='%{customdata}',
+                        customdata=plot_monetary_df[['DealValue_fmt']]
+                    )
                     max_val = plot_monetary_df['DealValue'].max()
                     fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
                     st.plotly_chart(fig_monetary)
@@ -321,7 +337,7 @@ def main():
                     fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
                     st.plotly_chart(fig_nights)
 
-                    # --- Show each customerid total nights in each tip ---
+                    # Show each customerid total nights in each tip (pivot table)
                     st.subheader("تعداد شب هر مشتری در هر تیپ")
                     cust_nights_pivot = agg_df.groupby(['Customer_id', 'tip'], as_index=False)['Nights'].sum()
                     cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='tip', values='Nights').fillna(0).astype(int)
@@ -337,7 +353,6 @@ def main():
                             file_name='rfm_segmentation_with_churn.csv',
                             mime='text/csv',
                         )
-
                     with col2:
                         st.download_button(
                             label="دانلود داده‌ها به صورت اکسل",
@@ -346,6 +361,7 @@ def main():
                             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         )
                 else:
+                    # If multiple complexes, group by complex
                     # Frequency by complex
                     plot_df = agg_df.groupby('complex', as_index=False).agg({'Frequency': 'sum'})
                     plot_df['Frequency_fmt'] = plot_df['Frequency'].apply(lambda x: f"{x:,}")
@@ -382,9 +398,11 @@ def main():
                         labels={'complex': 'مجتمع', 'DealValue': 'ارزش کل معاملات'},
                         text='DealValue_fmt'
                     )
-                    fig_monetary.update_traces(textposition='outside',
-                                               texttemplate='%{customdata}',
-                                               customdata=plot_monetary_df[['DealValue_fmt']])
+                    fig_monetary.update_traces(
+                        textposition='outside',
+                        texttemplate='%{customdata}',
+                        customdata=plot_monetary_df[['DealValue_fmt']]
+                    )
                     max_val = plot_monetary_df['DealValue'].max()
                     fig_monetary.update_yaxes(range=[0, max_val * 1.1 if max_val > 0 else 1])
                     st.plotly_chart(fig_monetary)
@@ -404,7 +422,7 @@ def main():
                     fig_nights.update_yaxes(range=[0, max_nights * 1.1 if max_nights > 0 else 1])
                     st.plotly_chart(fig_nights)
 
-                    # --- Show each customerid total nights in each complex ---
+                    # Show each customerid total nights in each complex (pivot table)
                     st.subheader("تعداد شب هر مشتری در هر مجتمع")
                     cust_nights_pivot = agg_df.groupby(['Customer_id', 'complex'], as_index=False)['Nights'].sum()
                     cust_nights_pivot = cust_nights_pivot.pivot(index='Customer_id', columns='complex', values='Nights').fillna(0).astype(int)
@@ -420,7 +438,6 @@ def main():
                             file_name='rfm_segmentation_with_churn.csv',
                             mime='text/csv',
                         )
-
                     with col2:
                         st.download_button(
                             label="دانلود داده‌ها به صورت اکسل",
@@ -429,6 +446,7 @@ def main():
                             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         )
 
+                # --- Additional aggregations and plots ---
                 # Monetary by quality
                 quality_df = agg_df.groupby('quality_rank_label', as_index=False).agg({'DealValue': 'sum'})
                 quality_df = quality_df[quality_df['quality_rank_label'] != 'نامشخص']
@@ -496,6 +514,7 @@ def main():
                     )
                     st.plotly_chart(fig_region_freq_pie)
     else:
+        # If not authenticated, show login
         login()
 
 if __name__ == "__main__":
