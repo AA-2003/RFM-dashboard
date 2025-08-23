@@ -163,22 +163,23 @@ def main():
                 if df2 is None or df2.empty:
                     st.info("مشکلی در بارگذاری داده ها پیش آمده است!!!")
                     return
-
+                
                 #  Calculate distribution of segments in period2 for selected customers
-                seg2_dist = df2['rfm_segment'].value_counts().reset_index()
-                seg2_dist.columns = ['rfm_segment', 'count']
+                if len(selected_segments2)!= 1:
+                    seg2_dist = df2['rfm_segment'].value_counts().reset_index()
+                    seg2_dist.columns = ['rfm_segment', 'count']
 
-                st.subheader("توزیع سگمنت مشتریان انتخابی در دوره دوم")
-                fig2 = px.bar(
-                    seg2_dist,
-                    x='rfm_segment',
-                    y='count',
-                    color='rfm_segment',
-                    title="",
-                    color_discrete_sequence=px.colors.qualitative.Set3
-                )
-                fig2.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
-                st.plotly_chart(fig2, use_container_width=True)
+                    st.subheader("توزیع سگمنت مشتریان انتخابی در دوره دوم")
+                    fig2 = px.bar(
+                        seg2_dist,
+                        x='rfm_segment',
+                        y='count',
+                        color='rfm_segment',
+                        title="",
+                        color_discrete_sequence=px.colors.qualitative.Set3
+                    )
+                    fig2.update_layout(xaxis_title='سگمنت', yaxis_title='تعداد')
+                    st.plotly_chart(fig2, use_container_width=True)
 
                 #  Merge period1 and period2 data for selected customers for display
                 data = pd.merge(
@@ -204,6 +205,23 @@ def main():
                     'rfm_segment_y': 'سگمنت دوره اول'
                 })
                 st.write(data)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="دانلود داده‌ها به صورت CSV",
+                        data=convert_df(data),
+                        file_name='rfm_segmentation.csv',
+                        mime='text/csv',
+                        key=f'download_{period1}_{segment1}_{period2}_{segment2}.csv'
+                    )
+                with col2:
+                    st.download_button(
+                        label="دانلود داده‌ها به صورت اکسل",
+                        data=convert_df_to_excel(data),
+                        file_name='rfm_segmentation.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        key=f'download_{period1}_{segment1}_{period2}_{segment2}.xlsx'
+                    )
 
         st.write('---')
 
@@ -235,15 +253,17 @@ def main():
             st.download_button(
                 label="دانلود داده‌ها به صورت CSV",
                 data=convert_df(agg_scores),
-                file_name='rfm_segmentation_with_churn.csv',
+                file_name='rfm_segmentation_happy_calll.csv',
                 mime='text/csv',
+                key='rfm_segmentation_happy_calll.csv'
             )
         with col2:
             st.download_button(
                 label="دانلود داده‌ها به صورت اکسل",
                 data=convert_df_to_excel(agg_scores),
-                file_name='rfm_segmentation_with_churn.xlsx',
+                file_name='rfm_segmentation_happy_calll.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                key='rfm_segmentation_happy_calll.xlsx'
             )
     else:
         login()

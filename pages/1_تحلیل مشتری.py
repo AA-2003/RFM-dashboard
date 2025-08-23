@@ -57,37 +57,9 @@ def customer_analyze():
 
         # Date Filters
         with BigQueryExecutor() as bq:
-            max_min_last_check_in = bq.exacute_query(
-                "Select max(last_checkin) as max, min(last_checkin) as min from `customerhealth-crm-warehouse.didar_data.RFM_segments`"
-            )
             max_min_check_in = bq.exacute_query(
                 "Select max(Checkin_date) as max, min(Checkin_date) as min from `customerhealth-crm-warehouse.didar_data.deals`"
             )
-
-        st.subheader("انتخاب بازه زمانی آخرین ورود: ")
-        last_checkin_config = Config(
-            always_open=False,
-            dark_mode=True,
-            locale="fa",
-            minimum_date=jdatetime.date.fromgregorian(date=pd.to_datetime(max_min_last_check_in['min'].iloc[0]).date()),
-            maximum_date=jdatetime.date.fromgregorian(date=pd.to_datetime(max_min_last_check_in['max'].iloc[0]).date()),
-            color_primary="#ff4b4b",
-            color_primary_light="#ff9494",
-            selection_mode="range",
-            placement="bottom",
-            disabled=True
-        )
-        last_check_in_values = datepicker_component(config=last_checkin_config)
-        last_checkin_start_date = (
-            last_check_in_values['from'].togregorian()
-            if last_check_in_values and 'from' in last_check_in_values and last_check_in_values['from'] is not None
-            else pd.to_datetime(max_min_last_check_in['min'].iloc[0]).date()
-        )
-        last_checkin_end_date = (
-            last_check_in_values['to'].togregorian()
-            if last_check_in_values and 'to' in last_check_in_values and last_check_in_values['to'] is not None
-            else pd.to_datetime(max_min_last_check_in['max'].iloc[0]).date()
-        )
 
         st.subheader("انتخاب بازه زمانی ورود: ")
         checkin_config = Config(
@@ -120,30 +92,6 @@ def customer_analyze():
         products = exacute_query("SELECT * FROM `customerhealth-crm-warehouse.didar_data.Products`")
         complex_options = [b for b in products['Building_name'].unique().tolist() if b != 'not_a_building']
         tip_options = products[products['Building_name'] != 'not_a_building']['ProductName'].unique().tolist()
-
-        # Favorite Complex/Tip Filter
-        favorite_complex_status = st.checkbox("انتخاب تمام مجتمع ها(مورد علاقه) ", value=True, key='favorite_complex_checkbox')
-        if favorite_complex_status:
-            favorite_tip_values = tip_options
-        else:
-            favorite_complex_values = st.multiselect(
-                " انتخاب مجتمع مورد علاقه :", options=complex_options, default=[], key='favorite_complex_multiselect_selectbox'
-            )
-            cols = st.columns([1, 4])
-            with cols[1]:
-                favorite_tip_options = products[
-                    (products['Building_name'] != 'not_a_building') &
-                    (products['Building_name'].isin(favorite_complex_values))
-                ]['ProductName'].unique().tolist()
-                favorite_tip_status = st.checkbox("انتخاب تمام تیپ ها ", value=True, key='favorite_tips_checkbox')
-                if favorite_tip_status:
-                    favorite_tip_values = favorite_tip_options
-                else:
-                    favorite_tip_values = st.multiselect(
-                        "انتخاب تیپ مورد علاقه :", options=favorite_tip_options, default=[], key='favorite_tip_multiselect_selectbox'
-                    )
-                if not favorite_tip_values:
-                    favorite_tip_values = favorite_tip_options
 
         # Resident Complex/Tip Filter
         resident_complex_status = st.checkbox("انتخاب تمام مجتمع ها(مقیم) ", value=True, key='resident_complex_checkbox')
@@ -253,7 +201,6 @@ def customer_analyze():
                 END AS vip_status
             FROM `customerhealth-crm-warehouse.didar_data.RFM_segments`
             WHERE rfm_segment IN ({to_sql_list(segment_values)})
-            AND (favorite_product IN ({to_sql_list(favorite_tip_values)}))
         ) t
         WHERE vip_status IN ({to_sql_list(vip_values)})
             AND blacklist_status IN ({to_sql_list(black_list_values)})
@@ -272,7 +219,6 @@ def customer_analyze():
                     p.ProductName IN ({to_sql_list(resident_tip_values)})
                     AND d.Checkin_date >= DATE('{checkin_start_date}') AND d.Checkin_date <= DATE('{checkin_end_date}')
                     AND d.Status = 'Won'
-                    AND r.last_checkin >= DATE('{last_checkin_start_date}') AND r.last_checkin <= DATE('{last_checkin_end_date}')
                     {happycall_filter}
             )
         """
@@ -325,14 +271,14 @@ def customer_analyze():
                 st.download_button(
                     label="دانلود داده‌ها به صورت CSV",
                     data=convert_df(final_data),
-                    file_name='rfm_segmentation_with_churn.csv',
+                    file_name='rfm_segmentation.csv',
                     mime='text/csv',
                 )
             with col2:
                 st.download_button(
                     label="دانلود داده‌ها به صورت اکسل",
                     data=convert_df_to_excel(final_data),
-                    file_name='rfm_segmentation_with_churn.xlsx',
+                    file_name='rfm_segmentation.xlsx',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 )
 
