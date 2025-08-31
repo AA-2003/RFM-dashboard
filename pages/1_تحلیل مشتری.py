@@ -185,10 +185,6 @@ def customer_analyze():
                     WHEN (total_nights / frequency) >= {monthly_limit} THEN "ماهانه"
                     ELSE "غیر ماهانه"
                 END AS monthly_status,
-                CASE
-                    WHEN last_checkin < CURRENT_DATE() AND last_checkout > CURRENT_DATE() THEN 'مقیم'
-                    ELSE 'غیر مقیم'
-                END AS is_staying,
                 CASE 
                     WHEN last_name LIKE '%*%' THEN 'blacklist'
                     ELSE 'non-blacklist'
@@ -205,7 +201,6 @@ def customer_analyze():
         WHERE vip_status IN ({to_sql_list(vip_values)})
             AND blacklist_status IN ({to_sql_list(black_list_values)})
             AND monthly_status IN ({to_sql_list(montly_values)})
-            AND is_staying IN ({to_sql_list(is_staying_values)})
             AND customer_id IN (
                 SELECT DISTINCT d.Customer_id
                 FROM `customerhealth-crm-warehouse.didar_data.deals` d
@@ -219,6 +214,11 @@ def customer_analyze():
                     p.ProductName IN ({to_sql_list(resident_tip_values)})
                     AND d.Checkin_date >= DATE('{checkin_start_date}') AND d.Checkin_date <= DATE('{checkin_end_date}')
                     AND d.Status = 'Won'
+                    AND (
+                        (d.Checkout >= CURRENT_DATE() AND d.Checkin_date <= CURRENT_DATE() AND 'مقیم' IN ({to_sql_list(is_staying_values)}))
+                        OR
+                        (NOT (d.Checkout >= CURRENT_DATE() AND d.Checkin_date <= CURRENT_DATE()) AND 'غیر مقیم' IN ({to_sql_list(is_staying_values)}))
+                    )
                     {happycall_filter}
             )
         """
