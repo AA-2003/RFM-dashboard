@@ -2,7 +2,6 @@ import re
 from google.cloud import bigquery
 import pandas as pd
 import streamlit as st
-from utils.logger import logger
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -42,7 +41,6 @@ class BigQueryExecutor:
             query_preview = re.sub(r'\s+', ' ', str(query))
             if len(query_preview) > 200:
                 query_preview = f"{query_preview[:100]} ... {query_preview[-100:]}"
-            logger.info(f"Query: {query_preview}")
 
             # Create BigQuery client using credentials
             client = bigquery.Client.from_service_account_info(_self.credentials)
@@ -51,13 +49,11 @@ class BigQueryExecutor:
             client.close()
 
             end = time.time()
-            logger.info(f"Query Executed: {query_preview} \n time:{end-start}s")
             print(f"Query Executed: {query_preview} \n time:{end-start}s")
 
             return df
 
         except Exception as e:
-            logger.info(f"Error executing query: {str(e)}")
             print(f"Error executing query: {str(e)}")
             return None
 
@@ -88,7 +84,7 @@ class BigQueryExecutor:
             return results
         except Exception as e:
             # Log or handle exception if needed
-            logger.info(f"Error executing queries in parallel: {str(e)}")
+            print(f"Error executing queries in parallel: {str(e)}")
             return None
 
 # Instantiate the executor and expose main methods 
