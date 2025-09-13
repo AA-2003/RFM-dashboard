@@ -254,14 +254,14 @@ def main():
                         else:
                             # Match uploaded file column with RFM data based on selected type
                             if column_type == "شماره تلفن":
-                                matching_results = rfm_data_upload[rfm_data_upload['phone_number'].astype(str).isin(file_data[selected_column].astype(str))]
-                                exists_mask = file_data[selected_column].astype(str).isin(rfm_data_upload['phone_number'].astype(str))
+                                matching_results = rfm_data_upload[rfm_data_upload['phone_number'].fillna(0).astype(int).isin(file_data[selected_column].fillna(0).astype(int))]
+                                exists_mask = file_data[selected_column].fillna(0).astype(int).isin(rfm_data_upload['phone_number'].astype(int))
                             elif column_type == "نام":
                                 matching_results = rfm_data_upload[rfm_data_upload['Last_name'].astype(str).isin(file_data[selected_column].astype(str))]
                                 exists_mask = file_data[selected_column].astype(str).isin(rfm_data_upload['Last_name'].astype(str))
                             elif column_type == "کد مشتری":
-                                matching_results = rfm_data_upload[rfm_data_upload['customer_id'].astype(str).isin(file_data[selected_column].astype(str))]
-                                exists_mask = file_data[selected_column].astype(str).isin(rfm_data_upload['customer_id'].astype(str))
+                                matching_results = rfm_data_upload[rfm_data_upload['customer_id'].astype(int).isin(file_data[selected_column].fillna(0).astype(int))]
+                                exists_mask = file_data[selected_column].fillna(0).astype(int).isin(rfm_data_upload['customer_id'].astype(int))
                             else:
                                 matching_results = pd.DataFrame()
                                 exists_mask = pd.Series([False]*len(file_data))
