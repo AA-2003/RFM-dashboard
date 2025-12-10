@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.custom_css import apply_custom_css
-from utils.write_data import append_to_sheet
+from utils.sheetConnect import append_to_sheet, authenticate_google_sheets
 from datetime import datetime
 
 from utils.auth import login
@@ -31,14 +31,12 @@ def support():
                 if submit_button:
                     if name and des:
                         row = [datetime.now().strftime('%Y-%m-%d %H:%M:%S'), name, email, des, 'RFM dashboard']
-                        append_to_sheet(row, 'Dashboard reports')
+                        append_to_sheet(client=authenticate_google_sheets(), spreadsheet_key='REQ_SPREADSHEET_ID', sheet_name='Dashboard reports', row_data=row)
                         st.success("درخواست شما با موفقیت ثبت شد!")
                     else:
                         st.warning("لطفا نام و شرح مشکل/درخواست را وارد کنید")
-
     else: 
         login()
-
 
 if __name__ == "__main__":
     support()

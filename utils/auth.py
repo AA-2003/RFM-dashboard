@@ -1,13 +1,18 @@
-import streamlit as st
 import time
+import streamlit as st
+from utils.sheetConnect import load_sheet
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_users():
+    users = load_sheet(key='MAIN_SPREADSHEET_ID', sheet_name='Users')
+    return users
 
 def login():
     st.title("صفحه ورود")
     st.write("لطفاً اطلاعات کاربری خود را وارد کنید.")
-
-    # Get passwords and roles from Streamlit secrets
-    passwords = st.secrets["passwords"]
-    roles = st.secrets["roles"]
+    
+    users = load_users()
+    users = users[users['status'] == 'active']
 
     # User input fields
     username = st.text_input("نام کاربری")
@@ -16,14 +21,16 @@ def login():
     if st.button("ورود"):
         if username and password:
             # Check if username exists and password matches
-            if username in passwords and passwords[username] == password:
-                # Set session state for role, username, and authentication
-                st.session_state.role = roles.get(username, "user")  # Default role is 'user' if not found
-                st.session_state.username = username
-                st.session_state.auth = True
-                st.success("ورود موفقیت‌آمیز! خوش آمدید")
-                time.sleep(1)  # Wait for 1 second to show success message
-                st.rerun()     # Rerun the app to update session state
+            if username in users['username'].values:
+                stored_password = users.loc[users['username'] == username, 'password'].values[0]
+                if password == stored_password:
+                    st.success("ورود موفقیت‌آمیز بود!")
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = username
+                    st.session_state.username = username
+                    st.session_state.auth = True
+                    st.rerun()
+
             else:
                 st.error("رمز عبور اشتباه است.")
         else:

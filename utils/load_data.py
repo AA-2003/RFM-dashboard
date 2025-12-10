@@ -10,19 +10,7 @@ import time
 class BigQueryExecutor:
     def __init__(self):
         # Load credentials from Streamlit secrets
-        self.credentials = {
-            "type": st.secrets["GOOGLE_TYPE"],
-            "project_id": st.secrets["GOOGLE_PROJECT_ID"],
-            "private_key_id": st.secrets["GOOGLE_PRIVATE_KEY_ID"],
-            "private_key": st.secrets["GOOGLE_PRIVATE_KEY"],
-            "client_email": st.secrets["GOOGLE_CLIENT_EMAIL"],
-            "client_id": st.secrets["GOOGLE_CLIENT_ID"],
-            "auth_uri": st.secrets["GOOGLE_AUTH_URI"],
-            "token_uri": st.secrets["GOOGLE_TOKEN_URI"],
-            "auth_provider_x509_cert_url": st.secrets["GOOGLE_AUTH_PROVIDER_X509_CERT_URL"],
-            "client_x509_cert_url": st.secrets["GOOGLE_CLIENT_X509_CERT_URL"],
-            "universe_domain": st.secrets["GOOGLE_UNIVERSE_DOMAIN"],
-        }
+        self.credentials = st.secrets["GOOGLE_CREDENTIALS_JSON"]
 
     def __enter__(self):
         return self
