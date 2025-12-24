@@ -2,6 +2,7 @@ import streamlit as st
 from utils.load_data import BigQueryExecutor
 from utils.custom_css import apply_custom_css
 from utils.auth import login
+from utils.logger import log_event
 
 def format_name(first_name, last_name):
     first = first_name or ''
@@ -24,6 +25,17 @@ def main():
     if not st.session_state.get('auth'):
         login()
         return
+
+    with st.sidebar:
+        if st.session_state.get('logged_in', False):
+            st.write(f"خوش آمدید، {st.session_state['username']}!")
+            if st.button("خروج"):
+                log_event(user=st.session_state['username'], event_type='logout', message='User logged out.')
+                st.session_state['logged_in'] = False
+                st.session_state['username'] = ""
+                st.session_state['role'] = ""
+                st.session_state['auth'] = False
+                st.rerun()
 
     tabs = st.columns([1, 1])
 
@@ -210,6 +222,7 @@ def main():
     segments['میانگین پرداختی'] = segments['Average_payment'].round(-3)
     segments['میانگین تعداد شب اقامت'] = segments['Average_number_of_nights'].round(1)
     segments['میانگین تعداد رزرو'] = segments['Average_number_of_reservations'].round(1)
+    
     st.write(
         segments[
             ['دسته بندی', 'تعداد دسته', 'میانگین پرداختی', 'میانگین تعداد شب اقامت', 'میانگین تعداد رزرو']

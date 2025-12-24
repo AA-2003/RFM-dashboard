@@ -9,7 +9,7 @@ from .sheetConnect import append_to_sheet, authenticate_google_sheets
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("logger")
 
-PRODUCTION = st.secrets.get("PRODUCTION", False)
+PRODUCTION = st.secrets.get("GENERAL", {}).get("PRODUCTION", False)
 def log_event(user: str, event_type: str, message: str):
     """
     Log an event to the logs sheet.
@@ -27,10 +27,8 @@ def log_event(user: str, event_type: str, message: str):
         'event_type': event_type,
         'message': message
     }
-    spreadsheet_id = st.secrets.get("SPREADSHEET_IDS").get("MAIN_SPREADSHEET_ID")
-
-    if PRODUCTION:
-        print(f"LOG [{log_data['timestamp']}] - User: {user}, Type: {event_type}, Message: {message}")
+    if PRODUCTION == "True" or PRODUCTION is True:
+        logger.info(f"LOG [{log_data['timestamp']}] - User: {user}, Type: {event_type}, Message: {message}")
     else:
         logger.info(f"DEV LOG [{log_data['timestamp']}] - User: {user}, Type: {event_type}, Message: {message}")
-        append_to_sheet(client=authenticate_google_sheets(), spreadsheet_id=spreadsheet_id, sheet_name='Logs', row_data=[log_data])
+        append_to_sheet(client=authenticate_google_sheets(), spreadsheet_key="MAIN_SPREADSHEET_ID", sheet_name='Logs', row_data=[log_data])

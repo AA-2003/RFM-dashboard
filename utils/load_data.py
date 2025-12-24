@@ -37,7 +37,7 @@ class BigQueryExecutor:
             client.close()
 
             end = time.time()
-            print(f"Query Executed: {query_preview} \n time:{end-start}s")
+            # print(f"Query Executed: {query_preview} \n time:{end-start}s")
 
             return df
 
